@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyCt_ooudAP-7AnSEoQLLTupnN_up9fnGXM</string>
+	<key>GCM_SENDER_ID</key>
+	<string>111924293210</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.example.barStockappCodexai</string>
+	<key>PROJECT_ID</key>
+	<string>smartbar-4700</string>
+	<key>STORAGE_BUCKET</key>
+	<string>smartbar-4700.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:111924293210:ios:c7ed8cc55135eef8d3f263</string>
+</dict>
+</plist>

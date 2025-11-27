@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "111924293210",
+    "project_id": "smartbar-4700",
+    "storage_bucket": "smartbar-4700.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:111924293210:android:9d66527ee105c54fd3f263",
+        "android_client_info": {
+          "package_name": "com.example.bar_stockapp_codexai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTY1AnyImqeJKzmns8_8Yh2gi0gH4pELo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,18 @@
+{
+  "version": "0.2.1",
+  "defaults": {},
+  "configurations": [
+    {
+      "type": "default",
+      "project": "windows\\CMakeLists.txt",
+      "projectTarget": "bar_stockapp_codexai.exe (Install)",
+      "name": "bar_stockapp_codexai.exe (Install)"
+    },
+    {
+      "type": "default",
+      "project": "windows\\CMakeLists.txt",
+      "projectTarget": "bar_stockapp_codexai.exe (runner\\bar_stockapp_codexai.exe)",
+      "name": "bar_stockapp_codexai.exe (runner\\bar_stockapp_codexai.exe)"
+    }
+  ]
+}
