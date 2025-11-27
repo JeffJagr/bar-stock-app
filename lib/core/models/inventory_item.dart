@@ -5,6 +5,7 @@ enum Level { green, yellow, red }
 
 class InventoryItem {
   final Product product;
+  final String? companyId;
 
   /// Group name (e.g. "Wine", "Cocktails", "Beer fridge")
   String groupName;
@@ -29,6 +30,7 @@ class InventoryItem {
 
   InventoryItem({
     required this.product,
+    this.companyId,
     required this.groupName,
     required this.sortIndex,
     required this.maxQty,
@@ -41,6 +43,7 @@ class InventoryItem {
   InventoryItem copy() {
     return InventoryItem(
       product: product.copy(),
+      companyId: companyId,
       groupName: groupName,
       sortIndex: sortIndex,
       maxQty: maxQty,
@@ -54,6 +57,7 @@ class InventoryItem {
   factory InventoryItem.fromJson(Map<String, dynamic> json) {
     return InventoryItem(
       product: Product.fromJson(json['product'] as Map<String, dynamic>),
+      companyId: json['companyId'] as String?,
       groupName: json['groupName'] as String? ?? '',
       sortIndex: json['sortIndex'] as int? ?? 0,
       maxQty: json['maxQty'] as int? ?? 0,
@@ -70,6 +74,7 @@ class InventoryItem {
   Map<String, dynamic> toJson() {
     return {
       'product': product.toJson(),
+      if (companyId != null) 'companyId': companyId,
       'groupName': groupName,
       'sortIndex': sortIndex,
       'maxQty': maxQty,

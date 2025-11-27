@@ -41,34 +41,13 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: String.fromEnvironment(
-      'WEB_FIREBASE_API_KEY',
-      defaultValue: 'YOUR_WEB_FIREBASE_API_KEY',
-    ),
-    appId: String.fromEnvironment(
-      'WEB_FIREBASE_APP_ID',
-      defaultValue: 'YOUR_WEB_FIREBASE_APP_ID',
-    ),
-    messagingSenderId: String.fromEnvironment(
-      'WEB_FIREBASE_SENDER_ID',
-      defaultValue: 'YOUR_WEB_FIREBASE_SENDER_ID',
-    ),
-    projectId: String.fromEnvironment(
-      'WEB_FIREBASE_PROJECT_ID',
-      defaultValue: 'YOUR_WEB_FIREBASE_PROJECT_ID',
-    ),
-    authDomain: String.fromEnvironment(
-      'WEB_FIREBASE_AUTH_DOMAIN',
-      defaultValue: 'YOUR_WEB_FIREBASE_AUTH_DOMAIN',
-    ),
-    storageBucket: String.fromEnvironment(
-      'WEB_FIREBASE_STORAGE_BUCKET',
-      defaultValue: 'YOUR_WEB_FIREBASE_STORAGE_BUCKET',
-    ),
-    measurementId: String.fromEnvironment(
-      'WEB_FIREBASE_MEASUREMENT_ID',
-      defaultValue: 'YOUR_WEB_FIREBASE_MEASUREMENT_ID',
-    ),
+    apiKey: 'AIzaSyAnhJvbzYCu0VxUqSG8hhf6oRITqTpRms4',
+    appId: '1:111924293210:web:bc70d1d307c821a5d3f263',
+    messagingSenderId: '111924293210',
+    projectId: 'smartbar-4700',
+    authDomain: 'smartbar-4700.firebaseapp.com',
+    storageBucket: 'smartbar-4700.firebasestorage.app',
+    measurementId: 'G-9EX3BPY7SQ',
   );
 
   static const FirebaseOptions android = FirebaseOptions(

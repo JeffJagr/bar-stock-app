@@ -27,9 +27,12 @@ class AppNotifier extends ChangeNotifier {
   AppState _state;
   final AppController _controller;
   final cloud.RemoteRepository _remoteRepository;
+  String? _currentUserId;
 
   AppState get state => _state;
   AppController get controller => _controller;
+  String? get currentUserId => _currentUserId;
+  String? get activeCompanyId => _state.activeCompanyId;
 
   void replaceState(AppState newState) {
     _state = newState;
@@ -37,8 +40,17 @@ class AppNotifier extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setCurrentUserId(String? userId) {
+    _currentUserId = userId;
+  }
+
   void setActiveStaffId(String? staffId) {
     _state.activeStaffId = staffId;
+    notifyListeners();
+  }
+
+  void setActiveCompanyId(String? companyId) {
+    _state.activeCompanyId = companyId;
     notifyListeners();
   }
 
@@ -46,21 +58,20 @@ class AppNotifier extends ChangeNotifier {
     _controller.persistState();
   }
 
-  Future<void> syncFromCloud(String ownerId) async {
+  Future<bool> syncFromCloud(String companyId) async {
     try {
-      final remoteState = await _remoteRepository.syncFromCloud(ownerId);
-      final mergedState = _state.copy();
-      mergedState.inventory = remoteState.inventory;
-      mergedState.groups = remoteState.groups;
-      mergedState.orders = remoteState.orders;
-      mergedState.history = remoteState.history;
-      replaceState(mergedState);
+      final remoteState =
+          await _remoteRepository.fetchFullStateForCompany(companyId);
+      remoteState.activeCompanyId ??= companyId;
+      replaceState(remoteState);
+      return true;
     } catch (err, stack) {
       ErrorReporter.logException(
         err,
         stack,
-        reason: 'Cloud sync failed',
+        reason: 'Cloud fetch failed',
       );
+      return false;
     }
   }
 
@@ -78,7 +89,7 @@ class AppNotifier extends ChangeNotifier {
 
   Future<AppState?> fetchCloudState(String ownerId) async {
     try {
-      return await _remoteRepository.syncFromCloud(ownerId);
+      return await _remoteRepository.fetchFullStateForCompany(ownerId);
     } catch (err, stack) {
       ErrorReporter.logException(
         err,
@@ -109,6 +120,8 @@ class AppNotifier extends ChangeNotifier {
     mergedState.groups = remoteState.groups;
     mergedState.orders = remoteState.orders;
     mergedState.history = remoteState.history;
+    mergedState.activeCompanyId =
+        remoteState.activeCompanyId ?? mergedState.activeCompanyId;
     replaceState(mergedState);
   }
 

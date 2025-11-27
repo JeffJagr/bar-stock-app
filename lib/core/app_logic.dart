@@ -43,6 +43,7 @@ class AppLogic {
         actionType: actionType,
         actorId: actor?.id ?? 'system',
         actorName: actor?.displayName ?? 'System',
+        companyId: state.activeCompanyId,
         meta: meta,
       ),
     );
@@ -100,7 +101,13 @@ class AppLogic {
           1;
     }
 
-    state.groups.add(Group(name: trimmed, sortIndex: sortIndex));
+    state.groups.add(
+      Group(
+        name: trimmed,
+        sortIndex: sortIndex,
+        companyId: state.activeCompanyId,
+      ),
+    );
     _log(
       state,
       'Added group "$trimmed"',
@@ -202,6 +209,7 @@ class AppLogic {
       id: id,
       name: trimmedName,
       isAlcohol: isAlcohol,
+      companyId: state.activeCompanyId,
     );
 
     // sort index at end of this group
@@ -223,6 +231,7 @@ class AppLogic {
     state.inventory.add(
       InventoryItem(
         product: product,
+        companyId: state.activeCompanyId,
         groupName: trimmedGroup,
         sortIndex: sortIndex,
         maxQty: maxQ,
@@ -709,6 +718,7 @@ class AppLogic {
       state.orders.add(
         OrderItem(
           product: item.product,
+          companyId: state.activeCompanyId,
           quantity: defaultQty,
           status: OrderStatus.pending,
         ),

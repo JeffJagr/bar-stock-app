@@ -17,6 +17,7 @@ import 'core/error_reporter.dart';
 import 'core/models/history_entry.dart';
 import 'core/models/order_item.dart';
 import 'core/models/staff_member.dart';
+import 'models/company.dart';
 import 'core/print_service.dart';
 import 'core/remote/backend_config.dart';
 import 'core/remote/remote_repository.dart';
@@ -24,7 +25,9 @@ import 'core/remote/remote_sync_service.dart';
 import 'core/security/security_config.dart';
 import 'core/undo_manager.dart';
 import 'core/web_refresh.dart';
+import 'ui/screens/auth/firebase_email_auth_screen.dart';
 import 'ui/screens/auth/login_screen.dart';
+import 'ui/screens/company/company_selector_screen.dart';
 import 'ui/screens/bar/bar_screen.dart';
 import 'ui/screens/bar/low_screen.dart';
 import 'ui/screens/history/history_screen.dart';
@@ -81,10 +84,13 @@ class _SmartBarAppState extends State<SmartBarApp> {
   StaffMember? _activeStaff;
   String? _authError;
   bool _authBusy = false;
+  Company? _activeCompany;
 
   final PrintService _printService = const PrintService();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   FirebaseAuth? _firebaseAuth;
+  User? _firebaseUser;
+  StreamSubscription<User?>? _authSubscription;
   String _barId = BackendConfig.defaultBarId;
   late final RemoteRepository _remoteRepository;
   late final RemoteSyncService _remoteSyncService;
@@ -100,6 +106,8 @@ class _SmartBarAppState extends State<SmartBarApp> {
     if (_firebaseAvailable) {
       _firebaseAuth = FirebaseAuth.instance;
       _remoteRepository = FirestoreRemoteRepository();
+      _authSubscription =
+          _firebaseAuth!.authStateChanges().listen(_handleAuthState);
     } else {
       _remoteRepository = const LocalRemoteRepository();
     }
@@ -114,20 +122,50 @@ class _SmartBarAppState extends State<SmartBarApp> {
     );
     _appNotifier.addListener(_handleAppStateChanged);
     AppStorage.setActiveBar(_barId);
-    _loadInitial();
+    if (!_firebaseAvailable) {
+      unawaited(_loadInitialForUser(_barId));
+    }
   }
 
-  Future<void> _loadInitial() async {
+  Future<void> _handleAuthState(User? user) async {
+    if (!_firebaseAvailable || !mounted) {
+      return;
+    }
+    if (user == null) {
+      await _remoteSyncService.dispose();
+      _firebaseUser = null;
+      _appNotifier.setCurrentUserId(null);
+      _appNotifier.replaceState(AppState.initial());
+      AppLogic.setCurrentStaff(null);
+      AppStorage.setActiveBar(BackendConfig.defaultBarId);
+      setState(() {
+        _activeStaff = null;
+        _selectedIndex = 0;
+        _loading = false;
+        _activeCompany = null;
+      });
+      return;
+    }
+    _firebaseUser = user;
+    _appNotifier.setCurrentUserId(user.uid);
+    setState(() {
+      _loading = false;
+      _activeStaff = null;
+      _selectedIndex = 0;
+    });
+  }
+
+  Future<void> _loadInitialForUser(String companyId) async {
+    setState(() {
+      _loading = true;
+      _selectedIndex = 0;
+    });
+    _barId = companyId;
+    AppStorage.setActiveBar(_barId);
     AppState resolvedState;
     try {
       var loaded = await AppStorage.loadState();
       _ensureDefaultAdmin(loaded);
-
-      final firebaseUser = _firebaseAuth?.currentUser;
-      if (firebaseUser != null) {
-        _barId = firebaseUser.uid;
-        AppStorage.setActiveBar(_barId);
-      }
 
       final remote = await _loadRemoteStateWithTimeout();
       if (remote != null) {
@@ -157,6 +195,7 @@ class _SmartBarAppState extends State<SmartBarApp> {
       );
     }
 
+    resolvedState.activeCompanyId = companyId;
     _appNotifier.replaceState(resolvedState);
     if (!mounted) return;
     final resolvedStaff = _staffFromState(
@@ -178,11 +217,72 @@ class _SmartBarAppState extends State<SmartBarApp> {
     setState(() {});
   }
 
+  Future<void> _handleCompanySelected(
+    String companyId,
+    Company company,
+  ) async {
+    if (!_firebaseAvailable || _firebaseAuth == null) return;
+    setState(() {
+      _activeCompany = company;
+      _activeStaff = null;
+      _selectedIndex = 0;
+    });
+    AppLogic.setCurrentStaff(null);
+    _appNotifier.setActiveStaffId(null);
+    _appNotifier.setActiveCompanyId(companyId);
+    await _remoteSyncService.dispose();
+    await _loadInitialForUser(companyId);
+  }
+
+  Future<void> _clearCompanySelection() async {
+    await _remoteSyncService.dispose();
+    _barId = BackendConfig.defaultBarId;
+    AppStorage.setActiveBar(_barId);
+    _appNotifier.setActiveCompanyId(null);
+    _appNotifier.setActiveStaffId(null);
+    _appNotifier.replaceState(AppState.initial());
+    AppLogic.setCurrentStaff(null);
+    setState(() {
+      _activeCompany = null;
+      _activeStaff = null;
+      _selectedIndex = 0;
+      _loading = false;
+    });
+  }
+
+  void _promptCompanySwitch(BuildContext ctx) {
+    if (!_firebaseAvailable || _firebaseUser == null) return;
+    showDialog<bool>(
+      context: ctx,
+      builder: (context) => AlertDialog(
+        title: const Text('Switch company'),
+        content: const Text(
+          'You will need to reselect a company and log in again. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Switch'),
+          ),
+        ],
+      ),
+    ).then((confirmed) {
+      if (confirmed == true) {
+        _clearCompanySelection();
+      }
+    });
+  }
+
   @override
   void dispose() {
     _appNotifier.removeListener(_handleAppStateChanged);
-    _appNotifier.dispose();
+    _authSubscription?.cancel();
     _remoteSyncService.dispose();
+    _appNotifier.dispose();
     super.dispose();
   }
 
@@ -490,11 +590,14 @@ class _SmartBarAppState extends State<SmartBarApp> {
     _appNotifier.setActiveStaffId(null);
     AppLogic.setCurrentStaff(null);
     _persistState();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Signed out')));
-    _firebaseAuth?.signOut();
-    _switchBar(BackendConfig.defaultBarId, clearActiveStaff: true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Signed out')),
+    );
+    if (_firebaseAvailable) {
+      _firebaseAuth?.signOut();
+    } else {
+      _switchBar(BackendConfig.defaultBarId, clearActiveStaff: true);
+    }
   }
 
   void _showManagementWarning(BuildContext ctx) {
@@ -531,9 +634,12 @@ class _SmartBarAppState extends State<SmartBarApp> {
 
   void _onManualSync(BuildContext ctx) {
     final messenger = ScaffoldMessenger.of(ctx);
-    if (!_firebaseAvailable) {
+    if (!_firebaseAvailable ||
+        _appNotifier.currentUserId == null ||
+        _appNotifier.state.activeCompanyId == null) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Cloud sync available only online')),
+        const SnackBar(
+            content: Text('Cloud sync available only when logged in and company selected')),
       );
       return;
     }
@@ -564,6 +670,37 @@ class _SmartBarAppState extends State<SmartBarApp> {
     });
   }
 
+  void _onCloudDownload(BuildContext ctx) {
+    final messenger = ScaffoldMessenger.of(ctx);
+    if (!_firebaseAvailable ||
+        _appNotifier.currentUserId == null ||
+        _appNotifier.state.activeCompanyId == null) {
+      messenger.showSnackBar(
+        const SnackBar(
+            content: Text('Cloud sync available only when logged in and company selected')),
+      );
+      return;
+    }
+    setState(() => _syncingCloud = true);
+    _appNotifier.syncFromCloud(_barId).then((success) async {
+      if (!mounted) return;
+      if (success) {
+        await _persistToRepositories(_appNotifier.state);
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Latest cloud data loaded')),
+        );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Failed to load cloud data')),
+        );
+      }
+    }).whenComplete(() {
+      if (mounted) {
+        setState(() => _syncingCloud = false);
+      }
+    });
+  }
+
   void _onPrint(BuildContext ctx) {
     final section = _printService.sectionForTab(_selectedIndex);
     if (section == null) {
@@ -582,6 +719,22 @@ class _SmartBarAppState extends State<SmartBarApp> {
   }
 
   Widget _buildBody(BuildContext context) {
+    if (_firebaseAvailable &&
+        _firebaseAuth != null &&
+        _firebaseUser == null) {
+      return FirebaseEmailAuthScreen(auth: _firebaseAuth!);
+    }
+
+    final needsCompanySelection = _firebaseAvailable &&
+        _firebaseUser != null &&
+        (_appNotifier.state.activeCompanyId == null);
+    if (needsCompanySelection) {
+      return CompanySelectorScreen(
+        currentUserId: _firebaseUser!.uid,
+        onCompanySelected: _handleCompanySelected,
+      );
+    }
+
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -636,7 +789,20 @@ class _SmartBarAppState extends State<SmartBarApp> {
   List<Widget> _buildActions(BuildContext ctx, bool hasOpenOrders) {
     if (_activeStaff == null) return const [];
 
+    final companyLabel =
+        _activeCompany?.name ?? _appNotifier.state.activeCompanyId;
+
     return [
+      if (companyLabel != null)
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: Text(
+              companyLabel,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+        ),
       Center(
         child: Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -677,6 +843,17 @@ class _SmartBarAppState extends State<SmartBarApp> {
           icon: const Icon(Icons.refresh),
           onPressed: refreshWebApp,
         ),
+      if (_firebaseAvailable && _firebaseUser != null)
+        IconButton(
+          tooltip: 'Switch company',
+          icon: const Icon(Icons.apartment),
+          onPressed: () => _promptCompanySwitch(ctx),
+        ),
+      IconButton(
+        tooltip: 'Download cloud data',
+        icon: const Icon(Icons.cloud_download),
+        onPressed: () => _onCloudDownload(ctx),
+      ),
       IconButton(
         tooltip: 'Sync from cloud',
         icon: const Icon(Icons.sync),

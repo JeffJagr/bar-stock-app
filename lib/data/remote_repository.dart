@@ -4,9 +4,11 @@ import '../core/models/history_entry.dart';
 import '../core/models/inventory_item.dart';
 import '../core/models/order_item.dart';
 import '../core/models/product.dart';
+import '../core/models/staff_member.dart';
 
 /// Defines contract for cloud-backed data sources used for syncing.
 abstract class RemoteRepository {
+  Future<AppState> fetchFullStateForCompany(String companyId);
   Future<AppState> syncFromCloud(String ownerId);
   Future<void> syncToCloud(String ownerId, AppState state);
 
@@ -35,4 +37,7 @@ abstract class RemoteRepository {
   Future<List<HistoryEntry>> listHistory(String ownerId);
   Future<void> addHistoryEntry(String ownerId, HistoryEntry entry);
   Future<void> deleteHistoryEntry(String ownerId, String entryId);
+
+  // Staff
+  Future<List<StaffMember>> listStaff(String ownerId);
 }

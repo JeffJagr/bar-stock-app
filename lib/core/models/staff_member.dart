@@ -14,6 +14,7 @@ class StaffMember {
   String passwordHash;
   String salt;
   final DateTime createdAt;
+  final String? companyId;
 
   StaffMember({
     required this.id,
@@ -23,6 +24,7 @@ class StaffMember {
     required this.passwordHash,
     required this.salt,
     required this.createdAt,
+    this.companyId,
   });
 
   factory StaffMember.create({
@@ -40,6 +42,7 @@ class StaffMember {
       salt: salt,
       passwordHash: PasswordUtils.hashPassword(password, salt),
       createdAt: DateTime.now(),
+      companyId: null,
     );
   }
 
@@ -52,6 +55,7 @@ class StaffMember {
       passwordHash: passwordHash,
       salt: salt,
       createdAt: createdAt,
+      companyId: companyId,
     );
   }
 
@@ -69,6 +73,7 @@ class StaffMember {
       salt: salt,
       passwordHash: PasswordUtils.hashPassword(password, salt),
       createdAt: createdAt,
+      companyId: companyId,
     );
   }
 
@@ -86,6 +91,7 @@ class StaffMember {
       createdAt:
           DateTime.tryParse(json['createdAt'] as String? ?? '') ??
           DateTime.now(),
+      companyId: json['companyId'] as String?,
     );
   }
 
@@ -98,6 +104,7 @@ class StaffMember {
       'passwordHash': passwordHash,
       'salt': salt,
       'createdAt': createdAt.toIso8601String(),
+      if (companyId != null) 'companyId': companyId,
     };
   }
 }

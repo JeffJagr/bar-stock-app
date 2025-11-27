@@ -23,6 +23,7 @@ class HistoryEntry {
   final HistoryActionType actionType;
   final String actorId;
   final String actorName;
+  final String? companyId;
   final Map<String, dynamic>? meta;
 
   HistoryEntry({
@@ -32,6 +33,7 @@ class HistoryEntry {
     required this.actionType,
     required this.actorId,
     required this.actorName,
+    this.companyId,
     this.meta,
   });
 
@@ -50,6 +52,7 @@ class HistoryEntry {
       ),
       actorId: json['actorId'] as String? ?? 'system',
       actorName: json['actorName'] as String? ?? 'System',
+      companyId: json['companyId'] as String?,
       meta: (json['meta'] as Map<String, dynamic>?),
     );
   }
@@ -62,6 +65,7 @@ class HistoryEntry {
       actionType: actionType,
       actorId: actorId,
       actorName: actorName,
+      companyId: companyId,
       meta: meta == null ? null : Map<String, dynamic>.from(meta!),
     );
   }
@@ -74,6 +78,7 @@ class HistoryEntry {
       'actionType': actionType.name,
       'actorId': actorId,
       'actorName': actorName,
+      if (companyId != null) 'companyId': companyId,
       'meta': meta,
     };
   }

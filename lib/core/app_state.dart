@@ -28,6 +28,7 @@ import 'security/security_config.dart';
 /// (inventory, orders, history) but this snapshot model matches the current
 /// local persistence and minimizes Firestore reads/writes for the MVP.
 class AppState {
+  String? activeCompanyId;
   List<InventoryItem> inventory;
   List<Group> groups;
   List<RestockItem> restock;
@@ -37,6 +38,7 @@ class AppState {
   String? activeStaffId;
 
   AppState({
+    this.activeCompanyId,
     required this.inventory,
     required this.groups,
     required this.restock,
@@ -100,6 +102,7 @@ class AppState {
     ];
 
     return AppState(
+      activeCompanyId: null,
       inventory: inventory,
       groups: groups,
       restock: <RestockItem>[],
@@ -113,6 +116,7 @@ class AppState {
   /// Deep copy of whole state for Undo
   AppState copy() {
     return AppState(
+      activeCompanyId: activeCompanyId,
       inventory: inventory.map((i) => i.copy()).toList(),
       groups: groups.map((g) => g.copy()).toList(),
       restock: restock.map((r) => r.copy()).toList(),
@@ -125,6 +129,7 @@ class AppState {
 
   Map<String, dynamic> toJson() {
     return {
+      'activeCompanyId': activeCompanyId,
       'inventory': inventory.map((i) => i.toJson()).toList(),
       'groups': groups.map((g) => g.toJson()).toList(),
       'restock': restock.map((r) => r.toJson()).toList(),
@@ -165,9 +170,10 @@ class AppState {
         history: (json['history'] as List<dynamic>? ?? [])
             .map((e) => HistoryEntry.fromJson(e as Map<String, dynamic>))
             .toList(),
-        staff: staffList,
-        activeStaffId: hasActive ? activeId : null,
-      );
+      staff: staffList,
+      activeStaffId: hasActive ? activeId : null,
+      activeCompanyId: json['activeCompanyId'] as String?,
+    );
     } catch (_) {
       return AppState.initial();
     }

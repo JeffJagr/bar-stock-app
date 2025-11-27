@@ -9,6 +9,7 @@ import 'backend_config.dart';
 
 /// Defines read/write operations for remote persistence.
 abstract class RemoteRepository {
+  Future<AppState> fetchFullStateForCompany(String companyId);
   Future<AppState?> loadState(String barId);
   Future<void> saveState(String barId, AppState state);
   Stream<AppState?> watchState(String barId);
@@ -23,6 +24,18 @@ class FirestoreRemoteRepository implements RemoteRepository {
 
   DocumentReference<Map<String, dynamic>> _doc(String barId) {
     return _service.barDocument(barId);
+  }
+
+  @override
+  Future<AppState> fetchFullStateForCompany(String companyId) async {
+    final state = await loadState(companyId);
+    if (state != null) {
+      state.activeCompanyId = companyId;
+      return state;
+    }
+    final fallback = AppState.initial();
+    fallback.activeCompanyId = companyId;
+    return fallback;
   }
 
   @override
@@ -69,7 +82,9 @@ class FirestoreRemoteRepository implements RemoteRepository {
       final stateMap = raw?[BackendConfig.stateField];
       if (stateMap is Map<String, dynamic>) {
         try {
-          return AppState.fromJson(stateMap);
+          final state = AppState.fromJson(stateMap);
+          state.activeCompanyId ??= barId;
+          return state;
         } catch (err, stack) {
           ErrorReporter.logException(
             err,
@@ -86,6 +101,10 @@ class FirestoreRemoteRepository implements RemoteRepository {
 /// Local-only stub used when Firebase/Firestore is disabled.
 class LocalRemoteRepository implements RemoteRepository {
   const LocalRemoteRepository();
+
+  @override
+  Future<AppState> fetchFullStateForCompany(String companyId) async =>
+      AppState.initial();
 
   @override
   Future<AppState?> loadState(String barId) async => null;
