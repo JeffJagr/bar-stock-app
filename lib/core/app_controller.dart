@@ -14,8 +14,8 @@ class AppController {
     required AppState initialState,
     required this.undoManager,
     PersistCallback? persistCallback,
-  })  : state = initialState,
-        _persistCallback = persistCallback ?? AppStorage.saveState;
+  }) : state = initialState,
+       _persistCallback = persistCallback ?? AppStorage.saveState;
 
   AppState state;
   final UndoManager undoManager;
@@ -30,7 +30,6 @@ class AppController {
   }
 
   void changeMaxQty(String productId, int maxQty) {
-    undoManager.pushSnapshot(state, UndoActionKind.productChange);
     AppLogic.setMaxQty(state, productId, maxQty);
     _persist();
   }
@@ -79,7 +78,9 @@ class AppController {
   }
 
   void changeOrderStatus(String productId, OrderStatus status) {
-    undoManager.pushSnapshot(state, UndoActionKind.orderChange);
+    if (status != OrderStatus.delivered) {
+      undoManager.pushSnapshot(state, UndoActionKind.orderChange);
+    }
     AppLogic.setOrderStatus(state, productId, status);
     _persist();
   }
@@ -90,19 +91,16 @@ class AppController {
   }
 
   void addGroup(String name) {
-    undoManager.pushSnapshot(state, UndoActionKind.productChange);
     AppLogic.addGroup(state, name);
     _persist();
   }
 
   void renameGroup(String oldName, String newName) {
-    undoManager.pushSnapshot(state, UndoActionKind.productChange);
     AppLogic.renameGroup(state, oldName, newName);
     _persist();
   }
 
   void deleteGroup(String name) {
-    undoManager.pushSnapshot(state, UndoActionKind.productChange);
     AppLogic.deleteGroup(state, name);
     _persist();
   }
@@ -114,7 +112,6 @@ class AppController {
     required int maxQty,
     required int warehouseQty,
   }) {
-    undoManager.pushSnapshot(state, UndoActionKind.productChange);
     AppLogic.addProduct(
       state,
       groupName: groupName,
@@ -134,7 +131,6 @@ class AppController {
     int? maxQty,
     int? warehouseQty,
   }) {
-    undoManager.pushSnapshot(state, UndoActionKind.productChange);
     AppLogic.editProduct(
       state,
       productId: productId,
@@ -148,13 +144,11 @@ class AppController {
   }
 
   void deleteProduct(String productId) {
-    undoManager.pushSnapshot(state, UndoActionKind.productChange);
     AppLogic.deleteProduct(state, productId);
     _persist();
   }
 
   void toggleTrackWarehouse(String productId, bool track) {
-    undoManager.pushSnapshot(state, UndoActionKind.productChange);
     AppLogic.setTrackWarehouse(state, productId, track);
     _persist();
   }
@@ -184,6 +178,71 @@ class AppController {
       action: 'Created staff ${staff.displayName} (${role.name})',
       kind: HistoryKind.auth,
       actionType: HistoryActionType.create,
+    );
+    _persist();
+    return null;
+  }
+
+  String? updateStaffAccount(
+    String staffId, {
+    String? displayName,
+    StaffRole? role,
+    String? password,
+  }) {
+    final index = state.staff.indexWhere((s) => s.id == staffId);
+    if (index < 0) {
+      return 'Staff account not found';
+    }
+    final staff = state.staff[index];
+    var changed = false;
+    if (displayName != null) {
+      final trimmed = displayName.trim();
+      if (trimmed.isEmpty) {
+        return 'Display name is required';
+      }
+      if (staff.displayName != trimmed) {
+        staff.displayName = trimmed;
+        changed = true;
+      }
+    }
+    if (role != null && staff.role != role) {
+      staff.role = role;
+      changed = true;
+    }
+    if (password != null && password.isNotEmpty) {
+      final updated = staff.withPassword(password);
+      staff
+        ..salt = updated.salt
+        ..passwordHash = updated.passwordHash;
+      changed = true;
+    }
+    if (!changed) {
+      return null;
+    }
+    AppLogic.logCustomAction(
+      state,
+      action: 'Updated staff ${staff.displayName} (${staff.role.name})',
+      kind: HistoryKind.auth,
+      actionType: HistoryActionType.update,
+    );
+    _persist();
+    return null;
+  }
+
+  String? deleteStaffAccount(String staffId) {
+    final index = state.staff.indexWhere((s) => s.id == staffId);
+    if (index < 0) {
+      return 'Staff account not found';
+    }
+    final removed = state.staff.removeAt(index);
+    if (state.activeStaffId == removed.id) {
+      state.activeStaffId = null;
+    }
+    AppLogic.logCustomAction(
+      state,
+      action: 'Deleted staff ${removed.displayName} (${removed.role.name})',
+      kind: HistoryKind.auth,
+      actionType: HistoryActionType.delete,
     );
     _persist();
     return null;

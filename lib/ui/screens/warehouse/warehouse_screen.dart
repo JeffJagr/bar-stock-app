@@ -8,6 +8,7 @@ import '../../../core/constants.dart';
 import '../../../core/models/inventory_item.dart';
 import '../../../core/models/order_item.dart' as oi;
 import '../../../core/print_service.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/print_preview_dialog.dart';
 
 class WarehouseScreen extends StatefulWidget {
@@ -55,9 +56,7 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 1100;
         final listView = allGroups.isEmpty
-            ? const Center(
-                child: Text('No products in warehouse yet.'),
-              )
+            ? _buildWarehouseEmptyState(context, notifier)
             : Scrollbar(
                 controller: _groupListController,
                 thumbVisibility: isWide,
@@ -179,6 +178,26 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
     );
   }
 
+  Widget _buildWarehouseEmptyState(
+    BuildContext context,
+    AppNotifier notifier,
+  ) {
+    final buttonLabel =
+        widget.canEdit ? 'Add product' : 'Request manager';
+    final onPressed = widget.canEdit
+        ? () => _showAddProductDialog(context, notifier)
+        : widget.onRequireManager;
+
+    return EmptyState(
+      icon: Icons.warehouse_outlined,
+      title: 'Warehouse is empty',
+      message:
+          'Add your first product to track backroom stock and supplier orders.',
+      buttonLabel: buttonLabel,
+      onButtonPressed: onPressed,
+    );
+  }
+
   Widget _buildGroup(
     BuildContext context,
     String groupName,
@@ -260,7 +279,8 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
         (max > 0) ? ((approx / max) * 100).clamp(0.0, 100.0) : 0.0;
     final isLowStock = AppLogic.isLowStock(item);
     final isBarLow = AppLogic.isBarLow(item);
-    final trackingOn = item.trackWarehouseLevel;
+    final trackingAllowed = AppConstants.warehouseTrackingEnabled;
+    final trackingOn = trackingAllowed && item.trackWarehouseLevel;
 
     Color whColor;
     if (!trackingOn) {
@@ -394,27 +414,39 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
               ],
             ),
             const SizedBox(height: 4),
-            Row(
-              children: [
-                Checkbox(
-                  value: trackingOn,
-                  onChanged: (v) {
-                    notifier.toggleTrackWarehouse(
-                      item.product.id,
-                      v ?? true,
-                    );
-                    setState(() {});
-                  },
-                ),
-                Expanded(
-                  child: Text(
-                    'Track low alerts '
-                    '(below ${(AppConstants.warehouseLowThreshold * 100).toStringAsFixed(0)}%)',
-                    style: const TextStyle(fontSize: 11),
+            if (trackingAllowed)
+              Row(
+                children: [
+                  Checkbox(
+                    value: trackingOn,
+                    onChanged: (v) {
+                      notifier.toggleTrackWarehouse(
+                        item.product.id,
+                        v ?? true,
+                      );
+                      setState(() {});
+                    },
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Track low alerts '
+                      '(below ${(AppConstants.warehouseLowThreshold * 100).toStringAsFixed(0)}%)',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ],
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Warehouse tracking disabled in config',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
                   ),
                 ),
-              ],
-            ),
+              ),
             if (onOrderText != null) ...[
               const SizedBox(height: 4),
               Row(
@@ -554,6 +586,9 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
                     TextField(
                       controller: maxController,
                       keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
                       decoration: const InputDecoration(
                         labelText: 'Max in bar',
                         border: OutlineInputBorder(),
@@ -564,6 +599,9 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
                   TextField(
                     controller: warehouseController,
                     keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
                     decoration: const InputDecoration(
                       labelText: 'Qty in warehouse',
                       border: OutlineInputBorder(),
@@ -675,7 +713,7 @@ class _StatusBadge extends StatelessWidget {
       margin: const EdgeInsets.only(right: 8),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(

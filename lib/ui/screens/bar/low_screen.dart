@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/app_logic.dart';
@@ -88,6 +89,9 @@ class LowScreen extends StatelessWidget {
                             child: TextFormField(
                               initialValue: item.maxQty.toString(),
                               keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
                               decoration: const InputDecoration(
                                 labelText: 'Max',
                                 labelStyle: TextStyle(fontSize: 10),

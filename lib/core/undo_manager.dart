@@ -1,7 +1,11 @@
 import 'app_state.dart';
 import 'constants.dart';
+import 'models/staff_member.dart';
 
-enum UndoActionKind { stockChange, productChange, orderChange }
+enum UndoActionKind {
+  stockChange,
+  orderChange,
+}
 
 class _UndoEntry {
   final AppState snapshot;
@@ -26,7 +30,6 @@ class UndoManager {
         _allowedKinds = allowedKinds ??
             const {
               UndoActionKind.stockChange,
-              UndoActionKind.productChange,
               UndoActionKind.orderChange,
             };
 
@@ -36,6 +39,11 @@ class UndoManager {
   final Set<UndoActionKind> _allowedKinds;
 
   bool get hasUndoEntries => _undoStack.isNotEmpty;
+
+  bool hasUndoForRole(StaffRole? role) {
+    final allowed = _allowedKindsForRole(role);
+    return _undoStack.any((entry) => allowed.contains(entry.kind));
+  }
 
   void pushSnapshot(AppState state, UndoActionKind kind) {
     if (!_allowedKinds.contains(kind)) return;
@@ -51,11 +59,15 @@ class UndoManager {
     }
   }
 
-  /// Returns the last valid snapshot or null if nothing can be undone.
-  AppState? restoreLatest() {
+  /// Returns the last valid snapshot respecting role-specific permissions.
+  AppState? restoreLatestForRole(StaffRole? role) {
     final now = DateTime.now();
+    final allowedKinds = _allowedKindsForRole(role);
     while (_undoStack.isNotEmpty) {
       final entry = _undoStack.removeLast();
+      if (!allowedKinds.contains(entry.kind)) {
+        continue;
+      }
       final age = now.difference(entry.timestamp);
       if (age > _timeLimit) {
         continue;
@@ -66,4 +78,11 @@ class UndoManager {
   }
 
   void clear() => _undoStack.clear();
+
+  Set<UndoActionKind> _allowedKindsForRole(StaffRole? role) {
+    if (role == StaffRole.worker) {
+      return const {UndoActionKind.stockChange};
+    }
+    return const {UndoActionKind.stockChange, UndoActionKind.orderChange};
+  }
 }

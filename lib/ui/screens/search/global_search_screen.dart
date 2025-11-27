@@ -17,21 +17,6 @@ class GlobalSearchScreen extends StatefulWidget {
 }
 
 class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
-  final String _itemsQuery = '';
-  final String _historyQuery = '';
-  final TextEditingController _itemSearchController = TextEditingController();
-  final TextEditingController _historySearchController =
-      TextEditingController();
-  final bool _onlyBarLow = false;
-  final bool _onlyWarehouseLow = false;
-
-  @override
-  void dispose() {
-    _itemSearchController.dispose();
-    _historySearchController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -456,7 +441,6 @@ class _HistoryTabState extends State<_HistoryTab> {
       case HistoryKind.auth:
         return Colors.teal.shade50;
       case HistoryKind.general:
-      default:
         return Colors.grey.shade100;
     }
   }
@@ -474,7 +458,6 @@ class _HistoryTabState extends State<_HistoryTab> {
       case HistoryKind.auth:
         return Colors.teal;
       case HistoryKind.general:
-      default:
         return Colors.grey;
     }
   }
@@ -492,7 +475,6 @@ class _HistoryTabState extends State<_HistoryTab> {
       case HistoryKind.auth:
         return Icons.lock;
       case HistoryKind.general:
-      default:
         return Icons.info_outline;
     }
   }

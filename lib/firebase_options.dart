@@ -41,48 +41,141 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyAnhJvbzYCu0VxUqSG8hhf6oRITqTpRms4',
-    appId: '1:111924293210:web:bc70d1d307c821a5d3f263',
-    messagingSenderId: '111924293210',
-    projectId: 'smartbar-4700',
-    authDomain: 'smartbar-4700.firebaseapp.com',
-    storageBucket: 'smartbar-4700.firebasestorage.app',
-    measurementId: 'G-9EX3BPY7SQ',
+    apiKey: String.fromEnvironment(
+      'WEB_FIREBASE_API_KEY',
+      defaultValue: 'YOUR_WEB_FIREBASE_API_KEY',
+    ),
+    appId: String.fromEnvironment(
+      'WEB_FIREBASE_APP_ID',
+      defaultValue: 'YOUR_WEB_FIREBASE_APP_ID',
+    ),
+    messagingSenderId: String.fromEnvironment(
+      'WEB_FIREBASE_SENDER_ID',
+      defaultValue: 'YOUR_WEB_FIREBASE_SENDER_ID',
+    ),
+    projectId: String.fromEnvironment(
+      'WEB_FIREBASE_PROJECT_ID',
+      defaultValue: 'YOUR_WEB_FIREBASE_PROJECT_ID',
+    ),
+    authDomain: String.fromEnvironment(
+      'WEB_FIREBASE_AUTH_DOMAIN',
+      defaultValue: 'YOUR_WEB_FIREBASE_AUTH_DOMAIN',
+    ),
+    storageBucket: String.fromEnvironment(
+      'WEB_FIREBASE_STORAGE_BUCKET',
+      defaultValue: 'YOUR_WEB_FIREBASE_STORAGE_BUCKET',
+    ),
+    measurementId: String.fromEnvironment(
+      'WEB_FIREBASE_MEASUREMENT_ID',
+      defaultValue: 'YOUR_WEB_FIREBASE_MEASUREMENT_ID',
+    ),
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCTY1AnyImqeJKzmns8_8Yh2gi0gH4pELo',
-    appId: '1:111924293210:android:9d66527ee105c54fd3f263',
-    messagingSenderId: '111924293210',
-    projectId: 'smartbar-4700',
-    storageBucket: 'smartbar-4700.firebasestorage.app',
+    apiKey: String.fromEnvironment(
+      'ANDROID_FIREBASE_API_KEY',
+      defaultValue: 'YOUR_ANDROID_FIREBASE_API_KEY',
+    ),
+    appId: String.fromEnvironment(
+      'ANDROID_FIREBASE_APP_ID',
+      defaultValue: 'YOUR_ANDROID_FIREBASE_APP_ID',
+    ),
+    messagingSenderId: String.fromEnvironment(
+      'ANDROID_FIREBASE_SENDER_ID',
+      defaultValue: 'YOUR_ANDROID_FIREBASE_SENDER_ID',
+    ),
+    projectId: String.fromEnvironment(
+      'ANDROID_FIREBASE_PROJECT_ID',
+      defaultValue: 'YOUR_ANDROID_FIREBASE_PROJECT_ID',
+    ),
+    storageBucket: String.fromEnvironment(
+      'ANDROID_FIREBASE_STORAGE_BUCKET',
+      defaultValue: 'YOUR_ANDROID_FIREBASE_STORAGE_BUCKET',
+    ),
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCt_ooudAP-7AnSEoQLLTupnN_up9fnGXM',
-    appId: '1:111924293210:ios:c7ed8cc55135eef8d3f263',
-    messagingSenderId: '111924293210',
-    projectId: 'smartbar-4700',
-    storageBucket: 'smartbar-4700.firebasestorage.app',
-    iosBundleId: 'com.example.barStockappCodexai',
+    apiKey: String.fromEnvironment(
+      'IOS_FIREBASE_API_KEY',
+      defaultValue: 'YOUR_IOS_FIREBASE_API_KEY',
+    ),
+    appId: String.fromEnvironment(
+      'IOS_FIREBASE_APP_ID',
+      defaultValue: 'YOUR_IOS_FIREBASE_APP_ID',
+    ),
+    messagingSenderId: String.fromEnvironment(
+      'IOS_FIREBASE_SENDER_ID',
+      defaultValue: 'YOUR_IOS_FIREBASE_SENDER_ID',
+    ),
+    projectId: String.fromEnvironment(
+      'IOS_FIREBASE_PROJECT_ID',
+      defaultValue: 'YOUR_IOS_FIREBASE_PROJECT_ID',
+    ),
+    storageBucket: String.fromEnvironment(
+      'IOS_FIREBASE_STORAGE_BUCKET',
+      defaultValue: 'YOUR_IOS_FIREBASE_STORAGE_BUCKET',
+    ),
+    iosBundleId: String.fromEnvironment(
+      'IOS_FIREBASE_BUNDLE_ID',
+      defaultValue: 'com.example.app',
+    ),
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyCt_ooudAP-7AnSEoQLLTupnN_up9fnGXM',
-    appId: '1:111924293210:ios:c7ed8cc55135eef8d3f263',
-    messagingSenderId: '111924293210',
-    projectId: 'smartbar-4700',
-    storageBucket: 'smartbar-4700.firebasestorage.app',
-    iosBundleId: 'com.example.barStockappCodexai',
+    apiKey: String.fromEnvironment(
+      'MACOS_FIREBASE_API_KEY',
+      defaultValue: 'YOUR_MACOS_FIREBASE_API_KEY',
+    ),
+    appId: String.fromEnvironment(
+      'MACOS_FIREBASE_APP_ID',
+      defaultValue: 'YOUR_MACOS_FIREBASE_APP_ID',
+    ),
+    messagingSenderId: String.fromEnvironment(
+      'MACOS_FIREBASE_SENDER_ID',
+      defaultValue: 'YOUR_MACOS_FIREBASE_SENDER_ID',
+    ),
+    projectId: String.fromEnvironment(
+      'MACOS_FIREBASE_PROJECT_ID',
+      defaultValue: 'YOUR_MACOS_FIREBASE_PROJECT_ID',
+    ),
+    storageBucket: String.fromEnvironment(
+      'MACOS_FIREBASE_STORAGE_BUCKET',
+      defaultValue: 'YOUR_MACOS_FIREBASE_STORAGE_BUCKET',
+    ),
+    iosBundleId: String.fromEnvironment(
+      'MACOS_FIREBASE_BUNDLE_ID',
+      defaultValue: 'com.example.app.macos',
+    ),
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyAnhJvbzYCu0VxUqSG8hhf6oRITqTpRms4',
-    appId: '1:111924293210:web:9135d57fa525827fd3f263',
-    messagingSenderId: '111924293210',
-    projectId: 'smartbar-4700',
-    authDomain: 'smartbar-4700.firebaseapp.com',
-    storageBucket: 'smartbar-4700.firebasestorage.app',
-    measurementId: 'G-LYYYMQVR2R',
+    apiKey: String.fromEnvironment(
+      'WINDOWS_FIREBASE_API_KEY',
+      defaultValue: 'YOUR_WINDOWS_FIREBASE_API_KEY',
+    ),
+    appId: String.fromEnvironment(
+      'WINDOWS_FIREBASE_APP_ID',
+      defaultValue: 'YOUR_WINDOWS_FIREBASE_APP_ID',
+    ),
+    messagingSenderId: String.fromEnvironment(
+      'WINDOWS_FIREBASE_SENDER_ID',
+      defaultValue: 'YOUR_WINDOWS_FIREBASE_SENDER_ID',
+    ),
+    projectId: String.fromEnvironment(
+      'WINDOWS_FIREBASE_PROJECT_ID',
+      defaultValue: 'YOUR_WINDOWS_FIREBASE_PROJECT_ID',
+    ),
+    authDomain: String.fromEnvironment(
+      'WINDOWS_FIREBASE_AUTH_DOMAIN',
+      defaultValue: 'YOUR_WINDOWS_FIREBASE_AUTH_DOMAIN',
+    ),
+    storageBucket: String.fromEnvironment(
+      'WINDOWS_FIREBASE_STORAGE_BUCKET',
+      defaultValue: 'YOUR_WINDOWS_FIREBASE_STORAGE_BUCKET',
+    ),
+    measurementId: String.fromEnvironment(
+      'WINDOWS_FIREBASE_MEASUREMENT_ID',
+      defaultValue: 'YOUR_WINDOWS_FIREBASE_MEASUREMENT_ID',
+    ),
   );
 }

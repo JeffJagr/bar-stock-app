@@ -1,7 +1,10 @@
 import 'package:flutter/foundation.dart';
 
+import '../data/firebase_remote_repository.dart';
+import '../data/remote_repository.dart' as cloud;
 import 'app_controller.dart';
 import 'app_state.dart';
+import 'error_reporter.dart';
 import 'models/order_item.dart';
 import 'models/staff_member.dart';
 import 'undo_manager.dart';
@@ -12,15 +15,18 @@ class AppNotifier extends ChangeNotifier {
     required AppState initialState,
     required UndoManager undoManager,
     PersistCallback? persistCallback,
-  })  : _state = initialState,
-        _controller = AppController(
-          initialState: initialState,
-          undoManager: undoManager,
-          persistCallback: persistCallback,
-        );
+    cloud.RemoteRepository? remoteRepository,
+  }) : _state = initialState,
+       _controller = AppController(
+         initialState: initialState,
+         undoManager: undoManager,
+         persistCallback: persistCallback,
+       ),
+       _remoteRepository = remoteRepository ?? FirebaseRemoteRepository();
 
   AppState _state;
   final AppController _controller;
+  final cloud.RemoteRepository _remoteRepository;
 
   AppState get state => _state;
   AppController get controller => _controller;
@@ -40,13 +46,70 @@ class AppNotifier extends ChangeNotifier {
     _controller.persistState();
   }
 
-  bool restoreLatestUndo() {
-    final restored = _controller.undoManager.restoreLatest();
+  Future<void> syncFromCloud(String ownerId) async {
+    try {
+      final remoteState = await _remoteRepository.syncFromCloud(ownerId);
+      final mergedState = _state.copy();
+      mergedState.inventory = remoteState.inventory;
+      mergedState.groups = remoteState.groups;
+      mergedState.orders = remoteState.orders;
+      mergedState.history = remoteState.history;
+      replaceState(mergedState);
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'Cloud sync failed',
+      );
+    }
+  }
+
+  bool restoreLatestUndo(StaffRole? role) {
+    final restored = _controller.undoManager.restoreLatestForRole(role);
     if (restored == null) {
       return false;
     }
     replaceState(restored);
     return true;
+  }
+
+  bool canUndoForRole(StaffRole? role) =>
+      _controller.undoManager.hasUndoForRole(role);
+
+  Future<AppState?> fetchCloudState(String ownerId) async {
+    try {
+      return await _remoteRepository.syncFromCloud(ownerId);
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'Cloud sync failed',
+      );
+      return null;
+    }
+  }
+
+  Future<bool> syncToCloud(String ownerId) async {
+    try {
+      await _remoteRepository.syncToCloud(ownerId, _state);
+      return true;
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'Cloud push failed',
+      );
+      return false;
+    }
+  }
+
+  void applyRemoteState(AppState remoteState) {
+    final mergedState = _state.copy();
+    mergedState.inventory = remoteState.inventory;
+    mergedState.groups = remoteState.groups;
+    mergedState.orders = remoteState.orders;
+    mergedState.history = remoteState.history;
+    replaceState(mergedState);
   }
 
   void changeFillPercent(String productId, double percent) {
@@ -172,11 +235,131 @@ class AppNotifier extends ChangeNotifier {
     StaffRole role,
     String password,
   ) {
-    final result =
-        _controller.createStaffAccount(login, displayName, role, password);
+    final actor = _currentStaffMember();
+    if (!_canAssignRole(actor, role)) {
+      return 'Insufficient permissions to create this role';
+    }
+    final result = _controller.createStaffAccount(
+      login,
+      displayName,
+      role,
+      password,
+    );
     if (result == null) {
       notifyListeners();
     }
     return result;
+  }
+
+  String? updateStaffAccount(
+    String staffId, {
+    String? displayName,
+    StaffRole? role,
+    String? password,
+  }) {
+    final actor = _currentStaffMember();
+    final target = _staffById(staffId);
+    if (actor == null || target == null) {
+      return 'Staff account not found';
+    }
+    if (!_canManageStaff(actor, target)) {
+      return 'You cannot modify this account';
+    }
+    if (role != null && !_canAssignRole(actor, role, target: target)) {
+      return 'You cannot assign this role';
+    }
+    final result = _controller.updateStaffAccount(
+      staffId,
+      displayName: displayName,
+      role: role,
+      password: password,
+    );
+    if (result == null) {
+      notifyListeners();
+    }
+    return result;
+  }
+
+  String? deleteStaffAccount(String staffId) {
+    final actor = _currentStaffMember();
+    final target = _staffById(staffId);
+    if (actor == null || target == null) {
+      return 'Staff account not found';
+    }
+    if (!_canDeleteStaff(actor, target)) {
+      return 'You cannot delete this account';
+    }
+    final result = _controller.deleteStaffAccount(staffId);
+    if (result == null) {
+      notifyListeners();
+    }
+    return result;
+  }
+
+  StaffMember? _currentStaffMember() {
+    final id = _state.activeStaffId;
+    if (id == null) return null;
+    for (final staff in _state.staff) {
+      if (staff.id == id) {
+        return staff;
+      }
+    }
+    return null;
+  }
+
+  StaffMember? _staffById(String staffId) {
+    for (final staff in _state.staff) {
+      if (staff.id == staffId) {
+        return staff;
+      }
+    }
+    return null;
+  }
+
+  bool _canAssignRole(
+    StaffMember? actor,
+    StaffRole role, {
+    StaffMember? target,
+  }) {
+    if (actor == null) return false;
+    switch (actor.role) {
+      case StaffRole.admin:
+        return true;
+      case StaffRole.owner:
+        if (target != null &&
+            target.id == actor.id &&
+            role == StaffRole.owner) {
+          return true;
+        }
+        return role == StaffRole.manager || role == StaffRole.worker;
+      case StaffRole.manager:
+        if (target != null && target.id == actor.id) {
+          return role == StaffRole.manager;
+        }
+        return role == StaffRole.worker;
+      case StaffRole.worker:
+        return false;
+    }
+  }
+
+  bool _canManageStaff(StaffMember actor, StaffMember target) {
+    if (actor.id == target.id) return true;
+    switch (actor.role) {
+      case StaffRole.admin:
+        return true;
+      case StaffRole.owner:
+        if (target.role == StaffRole.admin) return false;
+        if (target.role == StaffRole.owner) return false;
+        return true;
+      case StaffRole.manager:
+        return target.role == StaffRole.worker;
+      case StaffRole.worker:
+        return false;
+    }
+  }
+
+  bool _canDeleteStaff(StaffMember actor, StaffMember target) {
+    if (actor.id == target.id) return false;
+    return _canManageStaff(actor, target);
   }
 }

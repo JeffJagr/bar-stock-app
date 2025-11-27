@@ -1,7 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
+import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../data/firebase_service.dart';
 import '../app_state.dart';
+import '../error_reporter.dart';
 import 'backend_config.dart';
 
 /// Defines read/write operations for remote persistence.
@@ -13,15 +16,13 @@ abstract class RemoteRepository {
 
 /// Firestore-backed implementation that stores a single AppState document.
 class FirestoreRemoteRepository implements RemoteRepository {
-  FirestoreRemoteRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  FirestoreRemoteRepository({FirebaseService? service})
+      : _service = service ?? FirebaseService.instance;
 
-  final FirebaseFirestore _firestore;
+  final FirebaseService _service;
 
   DocumentReference<Map<String, dynamic>> _doc(String barId) {
-    return _firestore
-        .collection(BackendConfig.barsCollection)
-        .doc(barId);
+    return _service.barDocument(barId);
   }
 
   @override
@@ -35,8 +36,11 @@ class FirestoreRemoteRepository implements RemoteRepository {
         return AppState.fromJson(stateMap);
       }
     } catch (err, stack) {
-      debugPrint('Failed to load remote state: $err');
-      debugPrint('$stack');
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'Failed to load remote state',
+      );
     }
     return null;
   }
@@ -49,8 +53,11 @@ class FirestoreRemoteRepository implements RemoteRepository {
         BackendConfig.updatedAtField: FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (err, stack) {
-      debugPrint('Failed to save remote state: $err');
-      debugPrint('$stack');
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'Failed to save remote state',
+      );
     }
   }
 
@@ -64,11 +71,29 @@ class FirestoreRemoteRepository implements RemoteRepository {
         try {
           return AppState.fromJson(stateMap);
         } catch (err, stack) {
-          debugPrint('Failed to parse remote snapshot: $err');
-          debugPrint('$stack');
+          ErrorReporter.logException(
+            err,
+            stack,
+            reason: 'Failed to parse remote snapshot',
+          );
         }
       }
       return null;
     });
   }
+}
+
+/// Local-only stub used when Firebase/Firestore is disabled.
+class LocalRemoteRepository implements RemoteRepository {
+  const LocalRemoteRepository();
+
+  @override
+  Future<AppState?> loadState(String barId) async => null;
+
+  @override
+  Future<void> saveState(String barId, AppState state) async {}
+
+  @override
+  Stream<AppState?> watchState(String barId) =>
+      const Stream<AppState?>.empty();
 }

@@ -33,12 +33,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   StatsRangePreset _preset = StatsRangePreset.month;
   DateTimeRange _range = _initialRange(StatsRangePreset.month);
   DateTimeRange? _customRange;
-  final Set<String> _selectedProductIds = {};
-  final Set<String> _selectedGroupNames = {};
+  String? _selectedProductId;
+  String? _selectedGroupName;
   StatisticsResult? _result;
   StatisticsResult? _comparisonResult;
   bool _comparePrevious = false;
-  TextEditingController? _productSearchController;
 
   @override
   void initState() {
@@ -163,7 +162,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.print),
-            onPressed: result == null ? null : () => _printStats(result),
+            onPressed:
+                result == null ? null : () => _onPrintStatistics(result),
           ),
         ],
       ),
@@ -201,9 +201,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _buildChartsSection(result),
+                _buildProductSection(result),
                 const SizedBox(height: 16),
-                _buildProductTable(result),
+                _buildGroupSection(result),
+                const SizedBox(height: 16),
+                _buildChartsSection(result),
                 const SizedBox(height: 24),
               ],
             ),
@@ -217,6 +219,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     }
     final presets = StatsRangePreset.values;
     final products = state.inventory;
+    final selectedProductName = _selectedProductId == null
+        ? null
+        : _productNameById(products, _selectedProductId!);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -262,7 +267,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         ),
         const Divider(),
         const Text(
-          'Products',
+          'Product focus',
           style: TextStyle(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
@@ -271,7 +276,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           optionsBuilder: (textEditingValue) {
             final query = textEditingValue.text.toLowerCase();
             if (query.isEmpty) {
-              return const Iterable<InventoryItem>.empty();
+              return products;
             }
             return products.where(
               (item) => item.product.name.toLowerCase().contains(query),
@@ -279,20 +284,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           },
           onSelected: (item) {
             setState(() {
-              _selectedProductIds.add(item.product.id);
+              _selectedProductId = item.product.id;
             });
-            _productSearchController?.clear();
             _calculate();
           },
           fieldViewBuilder:
               (context, textEditingController, focusNode, onFieldSubmitted) {
-            _productSearchController = textEditingController;
             return TextField(
               controller: textEditingController,
               focusNode: focusNode,
               decoration: const InputDecoration(
-                labelText: 'Search products',
-                hintText: 'Type to add products',
+                labelText: 'Search product',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
@@ -300,79 +302,52 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           },
         ),
         const SizedBox(height: 8),
-        if (_selectedProductIds.isNotEmpty)
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: state.inventory
-                .where((item) => _selectedProductIds.contains(item.product.id))
-                .map(
-                  (item) => InputChip(
-                    label: Text(item.product.name),
-                    onDeleted: () {
-                      setState(() {
-                        _selectedProductIds.remove(item.product.id);
-                      });
-                      _calculate();
-                    },
-                  ),
-                )
-                .toList(),
-          ),
-        if (_selectedProductIds.isNotEmpty)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
+        if (_selectedProductId != null)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              selectedProductName ?? 'Selected product',
+            ),
+            trailing: TextButton(
               onPressed: () {
-                setState(() {
-                  _selectedProductIds.clear();
-                });
+                setState(() => _selectedProductId = null);
                 _calculate();
               },
-              child: const Text('Clear products'),
+              child: const Text('Clear'),
             ),
           ),
         const Divider(),
         const Text(
-          'Groups',
+          'Group focus',
           style: TextStyle(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: state.groups
-              .map(
-                (group) => FilterChip(
-                  label: Text(group.name),
-                  selected: _selectedGroupNames.contains(group.name),
-                  onSelected: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedGroupNames.add(group.name);
-                      } else {
-                        _selectedGroupNames.remove(group.name);
-                      }
-                    });
-                    _calculate();
-                  },
-                ),
-              )
-              .toList(),
-        ),
-        if (_selectedGroupNames.isNotEmpty)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () {
-                setState(() {
-                  _selectedGroupNames.clear();
-                });
-                _calculate();
-              },
-              child: const Text('Clear groups'),
-            ),
+        DropdownButtonFormField<String?>(
+          initialValue: _selectedGroupName,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            isDense: true,
           ),
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('All groups'),
+            ),
+            ...state.groups.map(
+              (group) => DropdownMenuItem<String?>(
+                value: group.name,
+                child: Text(group.name),
+              ),
+            ),
+          ],
+          onChanged: (value) {
+            setState(() {
+              _selectedGroupName = value;
+            });
+            _calculate();
+          },
+        ),
         const Divider(),
         SwitchListTile(
           value: _comparePrevious,
@@ -654,6 +629,30 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
+  Widget _buildProductSection(StatisticsResult result) {
+    if (_selectedProductId != null) {
+      final stat = result.productStats
+          .firstWhere(
+            (ps) => ps.productId == _selectedProductId,
+            orElse: () => ProductStats(productId: _selectedProductId!, name: 'Unknown'),
+          );
+      return _buildProductDetailCard(stat);
+    }
+    return _buildProductTable(result);
+  }
+
+  Widget _buildGroupSection(StatisticsResult result) {
+    final stats = _groupStats(result);
+    if (_selectedGroupName != null) {
+      final stat = stats.firstWhere(
+        (gs) => gs.name == _selectedGroupName,
+        orElse: () => _GroupStat(_selectedGroupName!),
+      );
+      return _buildGroupDetailCard(stat);
+    }
+    return _buildGroupTable(stats);
+  }
+
   Widget _buildProductTable(StatisticsResult result) {
     final stats = result.productStats.toList()
       ..sort((a, b) => b.used.compareTo(a.used));
@@ -721,45 +720,159 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  void _printStats(StatisticsResult result) {
-    final selectedNames =
-        result.productStats.map((stat) => stat.name).toList();
-    final buffer = StringBuffer()
-      ..writeln('STATISTICS REPORT')
-      ..writeln('Range: ${_formatRange(_range)}')
-      ..writeln(
-        'Products: ${selectedNames.isEmpty ? 'All' : selectedNames.join(', ')}',
-      )
-      ..writeln()
-      ..writeln('Totals:')
-      ..writeln('Ordered: ${result.totalOrdered.toStringAsFixed(1)}')
-      ..writeln('Delivered: ${result.totalDelivered.toStringAsFixed(1)}')
-      ..writeln('Restocked: ${result.totalRestocked.toStringAsFixed(1)}')
-      ..writeln('Used: ${result.totalUsed.toStringAsFixed(1)}')
-      ..writeln()
-      ..writeln('Per product:');
-    for (final stat in result.productStats) {
-      buffer.writeln(
-          '- ${stat.name}: ordered ${stat.ordered.toStringAsFixed(1)}, delivered ${stat.delivered.toStringAsFixed(1)}, restocked ${stat.restocked.toStringAsFixed(1)}, used ${stat.used.toStringAsFixed(1)}, stock ${(stat.currentBar + stat.currentWarehouse).toStringAsFixed(1)}');
-    }
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Print preview'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: SelectableText(buffer.toString()),
+  Widget _buildProductDetailCard(ProductStats stat) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              stat.name,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            _detailRow('Ordered', stat.ordered),
+            _detailRow('Delivered', stat.delivered),
+            _detailRow('Restocked', stat.restocked),
+            _detailRow('Used', stat.used),
+            _detailRow('Bar stock', stat.currentBar),
+            _detailRow('Warehouse stock', stat.currentWarehouse),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupTable(List<_GroupStat> groups) {
+    if (groups.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'Group overview',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              SizedBox(height: 8),
+              Text('No group data for the selected filters.'),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
+      );
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Group overview',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('Group')),
+                  DataColumn(label: Text('Ordered')),
+                  DataColumn(label: Text('Delivered')),
+                  DataColumn(label: Text('Restocked')),
+                  DataColumn(label: Text('Used')),
+                  DataColumn(label: Text('Bar')),
+                  DataColumn(label: Text('Warehouse')),
+                ],
+                rows: groups
+                    .map(
+                      (stat) => DataRow(
+                        cells: [
+                          DataCell(Text(stat.name)),
+                          DataCell(Text(_formatValue(stat.ordered))),
+                          DataCell(Text(_formatValue(stat.delivered))),
+                          DataCell(Text(_formatValue(stat.restocked))),
+                          DataCell(Text(_formatValue(stat.used))),
+                          DataCell(Text(_formatValue(stat.bar))),
+                          DataCell(Text(_formatValue(stat.warehouse))),
+                        ],
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupDetailCard(_GroupStat stat) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              stat.name,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            _detailRow('Ordered', stat.ordered),
+            _detailRow('Delivered', stat.delivered),
+            _detailRow('Restocked', stat.restocked),
+            _detailRow('Used', stat.used),
+            _detailRow('Bar stock', stat.bar),
+            _detailRow('Warehouse stock', stat.warehouse),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, double value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(_formatValue(value),
+              style: const TextStyle(fontWeight: FontWeight.w600)),
         ],
       ),
     );
+  }
+
+  void _onPrintStatistics(StatisticsResult result) {
+    final service = const PrintService();
+    final text = service.buildStatisticsReport(
+      result: result,
+      rangeLabel: _formatRange(_range),
+      productFocus: _productFocusName(result),
+      groupFocus: _selectedGroupName ?? 'All',
+    );
+    PrintPreviewDialog.showText(
+      context,
+      'Statistics report',
+      text,
+    );
+  }
+
+  String _productFocusName(StatisticsResult result) {
+    if (_selectedProductId == null) return 'All';
+    return result.productStats
+        .firstWhere(
+          (stat) => stat.productId == _selectedProductId,
+          orElse: () => ProductStats(
+            productId: _selectedProductId!,
+            name: _selectedProductId!,
+          ),
+        )
+        .name;
   }
 
   String _presetLabel(StatsRangePreset preset) {
@@ -795,19 +908,49 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   Set<String> _effectiveProductFilter(AppState state) {
-    final ids = <String>{..._selectedProductIds};
-    if (_selectedGroupNames.isEmpty) return ids;
     final inventory = state.inventory;
-    for (final groupName in _selectedGroupNames) {
+    final ids = <String>{};
+    if (_selectedProductId != null) {
+      ids.add(_selectedProductId!);
+    }
+    if (_selectedGroupName != null) {
       ids.addAll(
         inventory
-            .where((item) => item.groupName == groupName)
+            .where((item) => item.groupName == _selectedGroupName)
             .map((item) => item.product.id),
       );
     }
     return ids;
   }
 
+  String? _productNameById(
+    List<InventoryItem> products,
+    String productId,
+  ) {
+    for (final item in products) {
+      if (item.product.id == productId) {
+        return item.product.name;
+      }
+    }
+    return null;
+  }
+
+  List<_GroupStat> _groupStats(StatisticsResult result) {
+    final state = _notifier?.state;
+    if (state == null) return [];
+    final productToGroup = {
+      for (final item in state.inventory) item.product.id: item.groupName,
+    };
+    final stats = <String, _GroupStat>{};
+    for (final productStat in result.productStats) {
+      final groupName = productToGroup[productStat.productId] ?? 'Ungrouped';
+      final entry = stats.putIfAbsent(groupName, () => _GroupStat(groupName));
+      entry.add(productStat);
+    }
+    final values = stats.values.toList()
+      ..sort((a, b) => b.used.compareTo(a.used));
+    return values;
+  }
 }
 
 class _ChartValue {
@@ -861,5 +1004,26 @@ class _StatCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _GroupStat {
+  final String name;
+  double ordered = 0;
+  double delivered = 0;
+  double restocked = 0;
+  double used = 0;
+  double bar = 0;
+  double warehouse = 0;
+
+  _GroupStat(this.name);
+
+  void add(ProductStats stats) {
+    ordered += stats.ordered;
+    delivered += stats.delivered;
+    restocked += stats.restocked;
+    used += stats.used;
+    bar += stats.currentBar;
+    warehouse += stats.currentWarehouse;
   }
 }

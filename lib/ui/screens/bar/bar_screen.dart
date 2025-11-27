@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/app_logic.dart';
@@ -6,6 +7,7 @@ import '../../../core/app_notifier.dart';
 import '../../../core/models/inventory_item.dart';
 import '../../../core/models/order_item.dart';
 import '../../../core/print_service.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/print_preview_dialog.dart';
 
 class BarScreen extends StatefulWidget {
@@ -43,9 +45,7 @@ class _BarScreenState extends State<BarScreen> {
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 1100;
         final listView = groupNames.isEmpty
-            ? const Center(
-                child: Text('No groups yet. Add your first group.'),
-              )
+            ? _buildBarEmptyState(context, notifier)
             : Scrollbar(
                 controller: _groupListController,
                 thumbVisibility: isWide,
@@ -167,6 +167,28 @@ class _BarScreenState extends State<BarScreen> {
     );
   }
 
+  Widget _buildBarEmptyState(BuildContext context, AppNotifier notifier) {
+    final canEdit = widget.canEdit;
+    final buttonLabel = canEdit
+        ? 'Add first group'
+        : widget.onRequireManager != null
+            ? 'Request manager'
+            : null;
+    final onPressed = canEdit
+        ? () => _showAddGroupDialog(context, notifier)
+        : widget.onRequireManager;
+
+    return EmptyState(
+      icon: Icons.local_bar_outlined,
+      title: 'Organize your bar',
+      message: canEdit
+          ? 'Create groups and add products to start tracking inventory.'
+          : 'Manager permissions are required before you can add bar items.',
+      buttonLabel: buttonLabel,
+      onButtonPressed: onPressed,
+    );
+  }
+
   // ---------- ORDER / SORT HELPERS ----------
 
   List<InventoryItem> _sortedItemsForGroup(
@@ -190,10 +212,8 @@ class _BarScreenState extends State<BarScreen> {
     return result;
   }
 
-  void _updateOrder(String groupName, List<String> ids) {
-    setState(() {
-      _orderByGroup[groupName] = ids;
-    });
+  void _handleReadOnlyReorder(int oldIndex, int newIndex) {
+    widget.onRequireManager?.call();
   }
 
   // ---------- GROUP UI ----------
@@ -266,7 +286,7 @@ class _BarScreenState extends State<BarScreen> {
                       _orderByGroup[groupName] = ids;
                     });
                   }
-                : (_, __) => widget.onRequireManager?.call(),
+                : _handleReadOnlyReorder,
             children: [
               for (final item in items)
                 _buildItemCard(
@@ -433,6 +453,9 @@ class _BarScreenState extends State<BarScreen> {
                   child: TextFormField(
                     initialValue: item.maxQty.toString(),
                     keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
                     decoration: const InputDecoration(
                       isDense: true,
                       contentPadding:
@@ -734,6 +757,9 @@ class _BarScreenState extends State<BarScreen> {
                   TextField(
                     controller: maxController,
                     keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
                     decoration: const InputDecoration(
                       labelText: 'Max in bar',
                       border: OutlineInputBorder(),
@@ -766,6 +792,9 @@ class _BarScreenState extends State<BarScreen> {
                     TextField(
                       controller: warehouseController,
                       keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
                       decoration: const InputDecoration(
                         labelText: 'Qty in warehouse',
                         border: OutlineInputBorder(),
@@ -859,6 +888,9 @@ class _BarScreenState extends State<BarScreen> {
                 TextField(
                   controller: maxController,
                   keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Max in bar',
                     border: OutlineInputBorder(),
@@ -869,6 +901,9 @@ class _BarScreenState extends State<BarScreen> {
                 TextField(
                   controller: whController,
                   keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Warehouse qty',
                     border: OutlineInputBorder(),

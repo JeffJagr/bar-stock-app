@@ -1,5 +1,6 @@
 import 'app_logic.dart';
 import 'app_state.dart';
+import 'analytics/statistics_service.dart';
 import 'history_formatter.dart';
 import 'models/inventory_item.dart';
 
@@ -237,6 +238,45 @@ class PrintService {
     return buffer.toString();
   }
 
+  String buildStatisticsReport({
+    required StatisticsResult result,
+    required String rangeLabel,
+    String productFocus = 'All',
+    String groupFocus = 'All',
+  }) {
+    final buffer = StringBuffer()
+      ..writeln('STATISTICS REPORT')
+      ..writeln('================')
+      ..writeln('Range: $rangeLabel')
+      ..writeln('Product focus: $productFocus')
+      ..writeln('Group focus: $groupFocus')
+      ..writeln()
+      ..writeln('Totals:')
+      ..writeln('  Ordered: ${_formatValue(result.totalOrdered)}')
+      ..writeln('  Delivered: ${_formatValue(result.totalDelivered)}')
+      ..writeln('  Restocked: ${_formatValue(result.totalRestocked)}')
+      ..writeln('  Used: ${_formatValue(result.totalUsed)}')
+      ..writeln();
+
+    if (result.productStats.isEmpty) {
+      buffer.writeln('No product statistics available for this range.');
+      return buffer.toString();
+    }
+
+    buffer.writeln('Per product:');
+    for (final stat in result.productStats) {
+      buffer
+        ..writeln('- ${stat.name}')
+        ..writeln('    Ordered: ${_formatValue(stat.ordered)}')
+        ..writeln('    Delivered: ${_formatValue(stat.delivered)}')
+        ..writeln('    Restocked: ${_formatValue(stat.restocked)}')
+        ..writeln('    Used: ${_formatValue(stat.used)}')
+        ..writeln('    Stock: '
+            '${_formatValue(stat.currentBar + stat.currentWarehouse)}');
+    }
+    return buffer.toString();
+  }
+
   void _sortItems(List<InventoryItem> items) {
     items.sort((a, b) {
       final at = a.product.name.toLowerCase();
@@ -274,5 +314,12 @@ class PrintService {
       return 'Low';
     }
     return 'OK';
+  }
+
+  String _formatValue(double value) {
+    if (value == value.roundToDouble()) {
+      return value.toStringAsFixed(0);
+    }
+    return value.toStringAsFixed(1);
   }
 }

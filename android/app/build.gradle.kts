@@ -7,7 +7,8 @@ plugins {
 }
 
 android {
-    namespace = "com.example.bar_stockapp_codexai"
+    // Placeholder namespace/application ID is replaced via CI for signed store builds.
+    namespace = "com.placeholder.barstockapp"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,21 +22,21 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.bar_stockapp_codexai"
+        applicationId = "com.placeholder.barstockapp"
+        // The semantic version (MAJOR.MINOR.PATCH) is defined in pubspec.yaml; keep versionName in sync.
+        versionName = flutter.versionName
+        // versionCode must monotonically increase with every semantic version bump for Play Console uploads.
+        versionCode = flutter.versionCode
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Signing configs are supplied by CI/CD or locally via gradle.properties before publishing.
+            // Keep this block unsigned so QA builds remain free of release credentials.
         }
     }
 }

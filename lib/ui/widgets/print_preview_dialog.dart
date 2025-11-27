@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/app_state.dart';
 import '../../core/print_service.dart';
@@ -11,14 +12,58 @@ class PrintPreviewDialog {
     AppState state,
     PrintSection section,
   ) async {
+    final messenger = ScaffoldMessenger.of(context);
     final service = const PrintService();
     final text = service.buildSection(state, section);
     if (text == null || text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
-          content: Text('Nothing to export for '
-              '${PrintService.sectionLabel(section)}'),
+          content: Text(
+            'Nothing to export for ${PrintService.sectionLabel(section)}',
+          ),
         ),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Export ${PrintService.sectionLabel(section)}?'),
+        content: Text(
+          'Exporting data may share business information outside the app. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Export'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    await showText(
+      context,
+      'Export - ${PrintService.sectionLabel(section)}',
+      text,
+      section: section,
+    );
+  }
+
+  static Future<void> showText(
+    BuildContext context,
+    String title,
+    String text, {
+    PrintSection? section,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (text.trim().isEmpty) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Nothing to export for $title')),
       );
       return;
     }
@@ -27,7 +72,7 @@ class PrintPreviewDialog {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: Text('Export - ${PrintService.sectionLabel(section)}'),
+          title: Text(title),
           content: SizedBox(
             width: 480,
             child: ConstrainedBox(
@@ -51,13 +96,19 @@ class PrintPreviewDialog {
                 await Clipboard.setData(
                   ClipboardData(text: text),
                 );
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   const SnackBar(content: Text('Copied export text')),
                 );
               },
               child: const Text('Copy text'),
             ),
-            if (_supportsNativePrint)
+            TextButton(
+              onPressed: () async {
+                await Share.share(text, subject: title);
+              },
+              child: const Text('Share'),
+            ),
+            if (_supportsNativePrint && section != null)
               TextButton(
                 onPressed: () {
                   _simulateNativePrint(context, text, section);
@@ -95,9 +146,6 @@ class PrintPreviewDialog {
   ) {
     Navigator.of(context).pop();
     final label = _platformLabel(defaultTargetPlatform);
-    debugPrint(
-      'Printing ($label) [${PrintService.sectionLabel(section)}]:\n$text',
-    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(

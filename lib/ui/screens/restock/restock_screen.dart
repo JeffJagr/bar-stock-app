@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import '../../../core/app_notifier.dart';
 import '../../../core/models/restock_item.dart';
 import '../../../core/print_service.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/print_preview_dialog.dart';
+import '../bar/low_screen.dart';
 
 class RestockScreen extends StatefulWidget {
   const RestockScreen({super.key});
@@ -39,7 +41,7 @@ class _RestockScreenState extends State<RestockScreen> {
   @override
   Widget build(BuildContext context) {
     final notifier = context.watch<AppNotifier>();
-    final restock = notifier.state.restock;
+    final restock = _orderedRestockItems(notifier);
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 1100;
@@ -63,10 +65,14 @@ class _RestockScreenState extends State<RestockScreen> {
           return Column(
             children: [
               exportButton,
-              const Expanded(
-                child: Center(
-                  child:
-                      Text('Restock list is empty. Add items from Bar or Low.'),
+              Expanded(
+                child: EmptyState(
+                  icon: Icons.inventory_2_outlined,
+                  title: 'Restock list is empty',
+                  message:
+                      'Select low items from the Bar or Low tabs to plan a refill.',
+                  buttonLabel: 'Review low stock',
+                  onButtonPressed: () => _openLowScreen(context),
                 ),
               ),
             ],
@@ -166,11 +172,14 @@ class _RestockScreenState extends State<RestockScreen> {
                               controller: controller,
                               keyboardType:
                                   const TextInputType.numberWithOptions(
-                                decimal: false,
+                                decimal: true,
                                 signed: false,
                               ),
                               inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'[0-9.]'),
+                                ),
+                                _PositiveNumberFormatter(decimalRange: 2),
                               ],
                               decoration: InputDecoration(
                                 hintText: 'Enter units',
@@ -343,6 +352,22 @@ class _RestockScreenState extends State<RestockScreen> {
     }
   }
 
+  List<RestockItem> _orderedRestockItems(AppNotifier notifier) {
+    final inventory = notifier.state.inventory;
+    final positions = <String, int>{};
+    for (var i = 0; i < inventory.length; i++) {
+      positions[inventory[i].product.id] = i;
+    }
+    final list = notifier.state.restock.toList();
+    list.sort(
+      (a, b) =>
+          (positions[a.product.id] ?? 1000000)
+              .compareTo(positions[b.product.id] ?? 1000000),
+    );
+    return list;
+  }
+
+
   void _fillSuggestedSelection(
     BuildContext context,
     List<RestockItem> restock,
@@ -374,9 +399,9 @@ class _RestockScreenState extends State<RestockScreen> {
       return null;
     }
 
-    final value = int.tryParse(raw);
+    final value = double.tryParse(raw);
     if (value == null) {
-      _errorByProduct[id] = 'Digits only';
+      _errorByProduct[id] = 'Enter a valid number';
       return null;
     }
     if (value <= 0) {
@@ -384,16 +409,18 @@ class _RestockScreenState extends State<RestockScreen> {
       return null;
     }
 
-    final maxInt = item.approxNeed.ceil().clamp(0, 1000000);
     final maxAllowed =
-        item.approxNeed > 0 ? maxInt.toDouble() : double.infinity;
+        item.approxNeed > 0 ? item.approxNeed : double.infinity;
     if (value > maxAllowed) {
-      _errorByProduct[id] = 'Max $maxInt';
+      final formattedMax = maxAllowed % 1 == 0
+          ? maxAllowed.toStringAsFixed(0)
+          : maxAllowed.toStringAsFixed(1);
+      _errorByProduct[id] = 'Max $formattedMax';
       return null;
     }
 
     _errorByProduct[id] = null;
-    return value.toDouble();
+    return value;
   }
 
   Map<String, double>? _collectAmounts(
@@ -486,5 +513,49 @@ class _RestockScreenState extends State<RestockScreen> {
         ),
       ),
     );
+  }
+
+  void _openLowScreen(BuildContext context) {
+    final notifier = context.read<AppNotifier>();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChangeNotifierProvider<AppNotifier>.value(
+          value: notifier,
+          child: const LowScreen(),
+        ),
+      ),
+    );
+  }
+}
+
+/// Ensures only positive numeric input with optional limited decimal places.
+class _PositiveNumberFormatter extends TextInputFormatter {
+  const _PositiveNumberFormatter({this.decimalRange});
+
+  final int? decimalRange;
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final text = newValue.text;
+    if (text.isEmpty) {
+      return newValue;
+    }
+    final value = double.tryParse(text);
+    if (value == null || value.isNegative) {
+      return oldValue;
+    }
+    if (decimalRange != null) {
+      final dotIndex = text.indexOf('.');
+      if (dotIndex >= 0) {
+        final decimals = text.substring(dotIndex + 1);
+        if (decimals.length > decimalRange!) {
+          return oldValue;
+        }
+      }
+    }
+    return newValue;
   }
 }

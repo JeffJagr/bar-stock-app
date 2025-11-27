@@ -5,6 +5,7 @@ import '../../../core/app_notifier.dart';
 import '../../../core/history_formatter.dart';
 import '../../../core/models/history_entry.dart';
 import '../../../core/print_service.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/print_preview_dialog.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -16,7 +17,11 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _productController = TextEditingController();
+  final TextEditingController _groupController = TextEditingController();
   String _query = '';
+  String _productFilter = '';
+  String _groupFilter = '';
   final Set<HistoryKind> _selectedKinds = {};
   final Set<HistoryActionType> _selectedActions = {};
   DateTimeRange? _range;
@@ -25,6 +30,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _productController.dispose();
+    _groupController.dispose();
     super.dispose();
   }
 
@@ -39,6 +46,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final matchesQuery = _query.isEmpty ||
           entry.action.toLowerCase().contains(_query.toLowerCase()) ||
           entry.actorName.toLowerCase().contains(_query.toLowerCase());
+      final matchesProduct = _productFilter.isEmpty ||
+          (entry.meta?['productName'] as String? ?? '')
+              .toLowerCase()
+              .contains(_productFilter.toLowerCase());
+      final matchesGroup = _groupFilter.isEmpty ||
+          (entry.meta?['groupName'] as String? ?? '')
+              .toLowerCase()
+              .contains(_groupFilter.toLowerCase());
       final matchesKind =
           _selectedKinds.isEmpty || _selectedKinds.contains(entry.kind);
       final matchesAction = _selectedActions.isEmpty ||
@@ -46,8 +61,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final matchesRange = _range == null ||
           (!entry.timestamp.isBefore(_range!.start) &&
               !entry.timestamp.isAfter(_range!.end));
-      return matchesQuery && matchesKind && matchesAction && matchesRange;
+      return matchesQuery &&
+          matchesProduct &&
+          matchesGroup &&
+          matchesKind &&
+          matchesAction &&
+          matchesRange;
     }).toList();
+    final hasFilters = _query.isNotEmpty ||
+        _selectedKinds.isNotEmpty ||
+        _selectedActions.isNotEmpty ||
+        _range != null ||
+        _activePreset != 'ALL';
 
     return Scaffold(
       appBar: AppBar(
@@ -98,6 +123,58 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       PrintSection.history,
                     ),
                   ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _productController,
+                  decoration: InputDecoration(
+                    labelText: 'Filter by product',
+                    prefixIcon: const Icon(Icons.local_bar),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    suffixIcon: _productFilter.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () {
+                              _productController.clear();
+                              setState(() {
+                                _productFilter = '';
+                              });
+                            },
+                          ),
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _productFilter = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _groupController,
+                  decoration: InputDecoration(
+                    labelText: 'Filter by group',
+                    prefixIcon: const Icon(Icons.category),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    suffixIcon: _groupFilter.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () {
+                              _groupController.clear();
+                              setState(() {
+                                _groupFilter = '';
+                              });
+                            },
+                          ),
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _groupFilter = value;
+                    });
+                  },
                 ),
                 const SizedBox(height: 12),
                 Text(
@@ -219,7 +296,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
           Expanded(
             child: filtered.isEmpty
-                ? const Center(child: Text('No history entries'))
+                ? EmptyState(
+                    icon: Icons.history,
+                    title: hasFilters
+                        ? 'No history matches your filters'
+                        : 'No history yet',
+                    message: hasFilters
+                        ? 'Try clearing the filters or adjust your search.'
+                        : 'Completed actions and changes will appear here.',
+                    buttonLabel: hasFilters ? 'Reset filters' : null,
+                    onButtonPressed: hasFilters ? _resetFilters : null,
+                  )
                 : ListView.builder(
                     itemCount: filtered.length,
                     itemBuilder: (context, index) {
@@ -272,7 +359,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       case HistoryKind.auth:
         return Colors.teal.shade50;
       case HistoryKind.general:
-      default:
         return Colors.grey.shade100;
     }
   }
@@ -290,7 +376,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       case HistoryKind.auth:
         return Colors.teal;
       case HistoryKind.general:
-      default:
         return Colors.grey;
     }
   }
@@ -308,7 +393,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       case HistoryKind.auth:
         return Icons.lock;
       case HistoryKind.general:
-      default:
         return Icons.info_outline;
     }
   }
@@ -367,6 +451,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
         );
       });
     }
+  }
+
+  void _resetFilters() {
+    setState(() {
+      _searchController.clear();
+      _query = '';
+      _selectedKinds.clear();
+      _selectedActions.clear();
+      _range = null;
+      _activePreset = 'ALL';
+    });
   }
 
   String _formatRange(DateTimeRange range) {

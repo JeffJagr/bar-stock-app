@@ -5,6 +5,7 @@ import 'models/order_item.dart';
 import 'models/history_entry.dart';
 import 'models/product.dart';
 import 'models/staff_member.dart';
+import 'security/security_config.dart';
 
 /// Firestore sync plan (MVP)
 ///
@@ -14,7 +15,7 @@ import 'models/staff_member.dart';
 /// Collection: `bars`
 ///   Document ID: bar identifier such as `default_bar` or the owner/staff UID.
 ///   Fields:
-///     - `state`: Map<String, dynamic> produced by [AppState.toJson].
+///     - `state`: `Map<String, dynamic>` produced by [AppState.toJson].
 ///     - optional metadata (e.g. `updatedAt`, `schemaVersion`) if needed later.
 ///
 /// This lets us write/read one document:
@@ -104,7 +105,7 @@ class AppState {
       restock: <RestockItem>[],
       orders: <OrderItem>[],
       history: <HistoryEntry>[],
-      staff: <StaffMember>[_defaultManager()],
+      staff: <StaffMember>[_defaultAdmin()],
       activeStaffId: null,
     );
   }
@@ -139,8 +140,8 @@ class AppState {
       var staffList = (json['staff'] as List<dynamic>? ?? [])
           .map((e) => StaffMember.fromJson(e as Map<String, dynamic>))
           .toList();
-      if (staffList.isEmpty) {
-        staffList = <StaffMember>[_defaultManager()];
+      if (!staffList.any((member) => member.role == StaffRole.admin)) {
+        staffList = List<StaffMember>.from(staffList)..add(_defaultAdmin());
       }
       final activeId = json['activeStaffId'] as String?;
       final hasActive =
@@ -172,12 +173,12 @@ class AppState {
     }
   }
 
-  static StaffMember _defaultManager() {
+  static StaffMember _defaultAdmin() {
     return StaffMember.create(
-      login: 'manager',
-      displayName: 'Manager',
-      role: StaffRole.manager,
-      password: '2468',
+      login: 'admin',
+      displayName: 'Admin',
+      role: StaffRole.admin,
+      password: defaultAdminPin,
     );
   }
 }

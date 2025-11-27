@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/app_notifier.dart';
 import '../../../core/models/order_item.dart';
 import '../../../core/print_service.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/print_preview_dialog.dart';
 
 class OrderScreen extends StatelessWidget {
@@ -46,9 +47,22 @@ class OrderScreen extends StatelessWidget {
       return Column(
         children: [
           exportButton,
-          const Expanded(
-            child: Center(
-              child: Text('No orders yet. Add items from Warehouse.'),
+          Expanded(
+            child: EmptyState(
+              icon: Icons.shopping_cart_outlined,
+              title: 'No supplier orders',
+              message:
+                  'Track planned deliveries by creating orders from the Warehouse tab.',
+              buttonLabel: 'Show tip',
+              onButtonPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Open the Warehouse tab and add items to the order list.',
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -65,6 +79,7 @@ class OrderScreen extends StatelessWidget {
               itemCount: orders.length,
               itemBuilder: (context, index) {
                 final order = orders[index];
+                final isDelivered = order.status == OrderStatus.delivered;
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: Padding(
@@ -98,15 +113,16 @@ class OrderScreen extends StatelessWidget {
                               size: 16,
                             ),
                             backgroundColor:
-                                _statusColor(order.status).withOpacity(0.15),
+                                _statusColor(order.status)
+                                    .withValues(alpha: 0.15),
                             labelStyle: TextStyle(
                               color: _statusColor(order.status),
                               fontWeight: FontWeight.w600,
                             ),
                             shape: StadiumBorder(
                               side: BorderSide(
-                                color:
-                                    _statusColor(order.status).withOpacity(0.4),
+                                color: _statusColor(order.status)
+                                    .withValues(alpha: 0.4),
                               ),
                             ),
                           ),
@@ -130,12 +146,14 @@ class OrderScreen extends StatelessWidget {
                               inputFormatters: [
                                 FilteringTextInputFormatter.digitsOnly,
                               ],
+                              enabled: !isDelivered,
                               decoration: const InputDecoration(
                                 labelText: 'Qty',
                                 isDense: true,
                                 border: OutlineInputBorder(),
                               ),
                               onFieldSubmitted: (value) {
+                                if (isDelivered) return;
                                 final parsed =
                                     int.tryParse(value.trim()) ?? order.quantity;
                                 context
@@ -303,7 +321,8 @@ class _StatusNode extends StatelessWidget {
     final color = reached ? colorBuilder(status) : Colors.grey.shade400;
     return CircleAvatar(
       radius: 14,
-      backgroundColor: color.withOpacity(reached ? 0.2 : 0.1),
+      backgroundColor:
+          color.withValues(alpha: reached ? 0.2 : 0.1),
       child: Icon(
         _orderStatusIcon(status),
         color: color,

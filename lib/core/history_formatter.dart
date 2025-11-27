@@ -24,7 +24,6 @@ class HistoryFormatter {
       case HistoryKind.auth:
         return _authMessage(entry);
       case HistoryKind.general:
-      default:
         return HistoryMessage(
           title: entry.action,
           detail: null,

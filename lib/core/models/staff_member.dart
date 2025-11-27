@@ -1,6 +1,6 @@
 import '../security/password_utils.dart';
 
-enum StaffRole { manager, worker }
+enum StaffRole { admin, owner, manager, worker }
 
 /// Describes an individual staff account. For Firebase Auth integration we
 /// treat [login] as the email/username used for authentication while [id]
@@ -85,7 +85,7 @@ class StaffMember {
       salt: json['salt'] as String? ?? '',
       createdAt:
           DateTime.tryParse(json['createdAt'] as String? ?? '') ??
-              DateTime.now(),
+          DateTime.now(),
     );
   }
 

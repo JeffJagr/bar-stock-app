@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/security/security_config.dart';
+
 class LoginScreen extends StatefulWidget {
   final void Function(String login, String password) onLogin;
   final bool busy;
@@ -99,9 +101,9 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Default manager login: manager / 2468',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+          Text(
+            'Default admin login: admin / $defaultAdminPin',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
         ],
       ),

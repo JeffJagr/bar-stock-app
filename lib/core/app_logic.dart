@@ -51,6 +51,36 @@ class AppLogic {
     }
   }
 
+  static T? _firstOrNull<T>(
+    Iterable<T> items,
+    bool Function(T item) test,
+  ) {
+    for (final item in items) {
+      if (test(item)) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  static InventoryItem? _findInventoryItem(
+    AppState state,
+    String productId,
+  ) {
+    return _firstOrNull<InventoryItem>(
+      state.inventory,
+      (item) => item.product.id == productId,
+    );
+  }
+
+  static OrderItem? _findOpenOrder(AppState state, String productId) {
+    return _firstOrNull<OrderItem>(
+      state.orders,
+      (order) =>
+          order.product.id == productId && order.status != OrderStatus.delivered,
+    );
+  }
+
   // ---------- GROUPS & PRODUCTS MANAGEMENT ----------
 
   static void addGroup(AppState state, String name) {
@@ -220,10 +250,8 @@ class AppLogic {
     int? maxQty,
     int? warehouseQty,
   }) {
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == productId,
-      orElse: () => throw Exception('Product not found'),
-    );
+    final item = _findInventoryItem(state, productId);
+    if (item == null) return;
 
     final oldGroup = item.groupName;
     final targetGroup = groupName?.trim().isNotEmpty == true
@@ -288,10 +316,8 @@ class AppLogic {
 
   /// Update max quantity, keep the same fill ratio if possible
   static void setMaxQty(AppState state, String productId, int maxQty) {
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == productId,
-      orElse: () => throw Exception('Product not found'),
-    );
+    final item = _findInventoryItem(state, productId);
+    if (item == null) return;
 
     final oldMax = item.maxQty;
     final oldApprox = item.approxQty;
@@ -331,10 +357,8 @@ class AppLogic {
   /// Slider: set fill percent (0–100), recalc approxQty and level
   static void setFillPercent(
       AppState state, String productId, double percent) {
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == productId,
-      orElse: () => throw Exception('Product not found'),
-    );
+    final item = _findInventoryItem(state, productId);
+    if (item == null) return;
 
     final clamped = percent.clamp(0.0, 100.0);
     if (item.maxQty <= 0) {
@@ -399,6 +423,7 @@ class AppLogic {
 
   /// Determine if storage level is below threshold.
   static bool isLowStock(InventoryItem item) {
+    if (!AppConstants.warehouseTrackingEnabled) return false;
     if (!item.trackWarehouseLevel) return false;
     if (item.maxQty <= 0) return true;
     final ratio = (item.warehouseQty / item.maxQty).clamp(0.0, 1.0);
@@ -425,10 +450,8 @@ class AppLogic {
   /// Change warehouse quantity, never below 0
   static void setWarehouseQty(
       AppState state, String productId, int newQty) {
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == productId,
-      orElse: () => throw Exception('Product not found'),
-    );
+    final item = _findInventoryItem(state, productId);
+    if (item == null) return;
     final old = item.warehouseQty;
     if (newQty < 0) newQty = 0;
     item.warehouseQty = newQty;
@@ -442,10 +465,13 @@ class AppLogic {
 
   static void setTrackWarehouse(
       AppState state, String productId, bool track) {
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == productId,
-      orElse: () => throw Exception('Product not found'),
-    );
+    if (!AppConstants.warehouseTrackingEnabled) {
+      return;
+    }
+    final item = _findInventoryItem(state, productId);
+    if (item == null) {
+      return;
+    }
     if (item.trackWarehouseLevel == track) return;
     item.trackWarehouseLevel = track;
     _log(
@@ -465,10 +491,8 @@ class AppLogic {
 
   /// Add or update item in Restock list (approx to fill bar to max)
   static void addToRestock(AppState state, String productId) {
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == productId,
-      orElse: () => throw Exception('Product not found'),
-    );
+    final item = _findInventoryItem(state, productId);
+    if (item == null) return;
 
     if (item.maxQty <= 0) {
       _log(
@@ -527,10 +551,10 @@ class AppLogic {
     RestockItem restockItem,
     double requestedAmount,
   ) {
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == restockItem.product.id,
-      orElse: () => throw Exception('Product not found'),
-    );
+    final item = _findInventoryItem(state, restockItem.product.id);
+    if (item == null) {
+      return 0;
+    }
 
     if (requestedAmount <= 0) {
       return 0;
@@ -660,19 +684,15 @@ class AppLogic {
   /// Add item to orders (from Warehouse or later from Bar)
   /// If order already exists and is still pending/confirmed -> increase quantity.
   static void addToOrders(AppState state, String productId) {
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == productId,
-      orElse: () => throw Exception('Product not found'),
-    );
+    final item = _findInventoryItem(state, productId);
+    if (item == null) return;
 
     final defaultQty = item.maxQty > 0 ? item.maxQty : 1;
 
-    final existingIndex = state.orders.indexWhere(
-      (o) => o.product.id == productId && o.status != OrderStatus.delivered,
-    );
+    final existingOrder = _findOpenOrder(state, productId);
 
-    if (existingIndex >= 0) {
-      final order = state.orders[existingIndex];
+    if (existingOrder != null) {
+      final order = existingOrder;
       order.quantity += defaultQty;
       _log(
         state,
@@ -709,10 +729,8 @@ class AppLogic {
 
   static void setOrderQty(
       AppState state, String productId, int newQty) {
-    final order = state.orders.firstWhere(
-      (o) => o.product.id == productId && o.status != OrderStatus.delivered,
-      orElse: () => throw Exception('Order not found'),
-    );
+    final order = _findOpenOrder(state, productId);
+    if (order == null) return;
     final old = order.quantity;
     if (newQty < 0) newQty = 0;
     order.quantity = newQty;
@@ -731,10 +749,8 @@ class AppLogic {
 
   static void setOrderStatus(
       AppState state, String productId, OrderStatus status) {
-    final order = state.orders.firstWhere(
-      (o) => o.product.id == productId && o.status != OrderStatus.delivered,
-      orElse: () => throw Exception('Order not found'),
-    );
+    final order = _findOpenOrder(state, productId);
+    if (order == null) return;
     final old = order.status;
     order.status = status;
     _log(
@@ -747,17 +763,12 @@ class AppLogic {
 
   /// Mark order as delivered: add to warehouse and remove order
   static void markOrderDelivered(AppState state, String productId) {
-    final index = state.orders.indexWhere(
-      (o) => o.product.id == productId && o.status != OrderStatus.delivered,
-    );
-    if (index < 0) return;
+    final order = _findOpenOrder(state, productId);
+    if (order == null) return;
 
-    final order = state.orders[index];
+    final item = _findInventoryItem(state, productId);
+    if (item == null) return;
 
-    final item = state.inventory.firstWhere(
-      (i) => i.product.id == productId,
-      orElse: () => throw Exception('Inventory item not found'),
-    );
     item.warehouseQty += order.quantity;
 
     _log(
@@ -771,7 +782,6 @@ class AppLogic {
         'quantity': order.quantity.toDouble(),
       },
     );
-
-    state.orders.removeAt(index);
+    state.orders.remove(order);
   }
 }
