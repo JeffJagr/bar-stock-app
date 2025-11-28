@@ -1,15 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
 import '../../../data/company_repository.dart';
+import '../../../models/cloud_user_role.dart';
 import '../../../models/company.dart';
 
 class CompanySelectorScreen extends StatefulWidget {
   final String currentUserId;
+  final String? currentUserEmail;
   final void Function(String companyId, Company company) onCompanySelected;
+  final bool allowCreate;
+  final Widget? emptyPlaceholder;
+  final CloudUserRole? role;
 
   const CompanySelectorScreen({
     super.key,
     required this.currentUserId,
+    this.currentUserEmail,
     required this.onCompanySelected,
+    this.allowCreate = true,
+    this.emptyPlaceholder,
+    this.role,
   });
 
   @override
@@ -36,23 +47,18 @@ class _CompanySelectorScreenState extends State<CompanySelectorScreen> {
     }
     setState(() => _creatingCompany = true);
     try {
-      final id = await _repository.createCompany(
+      final company = await _repository.createCompany(
         name: name,
         ownerUserId: widget.currentUserId,
+        ownerEmail: widget.currentUserEmail,
       );
       if (!mounted) return;
-      final company = Company(
-        companyId: id,
-        name: name,
-        ownerUserId: widget.currentUserId,
-        createdAt: DateTime.now(),
-      );
       _companyNameController.clear();
       setState(() {
         _creatingCompany = false;
         _error = null;
       });
-      widget.onCompanySelected(id, company);
+      widget.onCompanySelected(company.companyId, company);
     } catch (err) {
       setState(() {
         _creatingCompany = false;
@@ -83,63 +89,95 @@ class _CompanySelectorScreenState extends State<CompanySelectorScreen> {
                 'Select a company',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
+              if (widget.role == CloudUserRole.owner)
+                Text(
+                  'Share the join code from each card with your staff.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               const SizedBox(height: 16),
-              if (companies.isEmpty)
-                Expanded(
-                  child: isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : Center(
-                          child: Text(
-                            'No companies yet. Create one to get started.',
-                            style: Theme.of(context).textTheme.bodyLarge,
-                            textAlign: TextAlign.center,
+              Expanded(
+                child: isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : companies.isEmpty
+                        ? (widget.emptyPlaceholder ??
+                            Center(
+                              child: Text(
+                                widget.allowCreate
+                                    ? 'No companies yet. Create one to get started.'
+                                    : 'No companies linked to this account yet.',
+                                style: Theme.of(context).textTheme.bodyLarge,
+                                textAlign: TextAlign.center,
+                              ),
+                            ))
+                        : ListView.builder(
+                            itemCount: companies.length,
+                            itemBuilder: (context, index) {
+                              final company = companies[index];
+                              final isOwner = widget.role == CloudUserRole.owner;
+                              final subtitle = isOwner
+                                  ? 'Join code: ${company.joinCode}'
+                                  : 'Owner: ${company.ownerUserId}';
+                              return Card(
+                                child: ListTile(
+                                  title: Text(company.name),
+                                  subtitle: Text(subtitle),
+                                  trailing: isOwner
+                                      ? IconButton(
+                                          tooltip: 'Copy join code',
+                                          icon: const Icon(Icons.copy),
+                                          onPressed: () => _copyJoinCode(
+                                            context,
+                                            company.joinCode,
+                                          ),
+                                        )
+                                      : null,
+                                  onTap: () => widget.onCompanySelected(
+                                      company.companyId, company),
+                                ),
+                              );
+                            },
                           ),
-                        ),
-                )
-              else
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: companies.length,
-                    itemBuilder: (context, index) {
-                      final company = companies[index];
-                      return Card(
-                        child: ListTile(
-                          title: Text(company.name),
-                          subtitle: Text('Owner: ${company.ownerUserId}'),
-                          onTap: () =>
-                              widget.onCompanySelected(company.companyId, company),
-                        ),
-                      );
-                    },
+              ),
+              const SizedBox(height: 16),
+              if (widget.allowCreate) ...[
+                Text(
+                  'Create a new company',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _companyNameController,
+                  decoration: InputDecoration(
+                    labelText: 'Company name',
+                    border: const OutlineInputBorder(),
+                    errorText: _error,
                   ),
                 ),
-              const SizedBox(height: 16),
-              Text('Create a new company', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _companyNameController,
-                decoration: InputDecoration(
-                  labelText: 'Company name',
-                  border: const OutlineInputBorder(),
-                  errorText: _error,
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _creatingCompany ? null : _createCompany,
+                  icon: _creatingCompany
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_business),
+                  label: Text(_creatingCompany ? 'Creating...' : 'Create Company'),
                 ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: _creatingCompany ? null : _createCompany,
-                icon: _creatingCompany
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.add_business),
-                label: Text(_creatingCompany ? 'Creating...' : 'Create Company'),
-              ),
+              ],
             ],
           ),
         );
       },
+    );
+  }
+
+  void _copyJoinCode(BuildContext context, String code) {
+    if (code.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: code));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Copied code $code')),
     );
   }
 }

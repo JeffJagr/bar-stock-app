@@ -1,70 +1,269 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../../../core/app_notifier.dart';
-import '../../../core/app_state.dart';
-import '../../../core/models/staff_member.dart';
+import '../../../data/staff_repository.dart';
+import '../../../models/company_member.dart';
 
 class StaffManagementScreen extends StatefulWidget {
-  const StaffManagementScreen({super.key});
+  const StaffManagementScreen({
+    super.key,
+    required this.companyId,
+    this.repository,
+    this.businessId,
+  });
+
+  final String companyId;
+  final StaffRepository? repository;
+  final String? businessId;
 
   @override
   State<StaffManagementScreen> createState() => _StaffManagementScreenState();
 }
 
 class _StaffManagementScreenState extends State<StaffManagementScreen> {
-  final _loginController = TextEditingController();
+  late final StaffRepository _repository;
+  late Future<List<CompanyMember>> _loadFuture;
   final _nameController = TextEditingController();
-  final _passwordController = TextEditingController();
-  StaffRole _selectedRole = StaffRole.worker;
+  final _pinController = TextEditingController();
+  final _confirmController = TextEditingController();
+  String _role = 'staff';
   String? _error;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = widget.repository ?? StaffRepository();
+    _loadFuture = _repository.listMembers(widget.companyId);
+  }
 
   @override
   void dispose() {
-    _loginController.dispose();
     _nameController.dispose();
-    _passwordController.dispose();
+    _pinController.dispose();
+    _confirmController.dispose();
     super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _loadFuture = _repository.listMembers(widget.companyId);
+    });
+  }
+
+  Future<void> _createMember() async {
+    final name = _nameController.text.trim();
+    final pin = _pinController.text.trim();
+    final confirm = _confirmController.text.trim();
+    if (name.isEmpty || pin.length < 4) {
+      setState(() => _error = 'Name and a 4+ digit PIN are required');
+      return;
+    }
+    if (pin != confirm) {
+      setState(() => _error = 'PINs do not match');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await _repository.createOrUpdateMember(
+        companyId: widget.companyId,
+        displayName: name,
+        role: _role,
+        pin: pin,
+      );
+      _nameController.clear();
+      _pinController.clear();
+      _confirmController.clear();
+      await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Created $_role $name')),
+        );
+      }
+    } catch (_) {
+      setState(() => _error = 'Failed to create staff member');
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _resetPin(CompanyMember member) async {
+    final pinController = TextEditingController();
+    final confirmController = TextEditingController();
+    String? error;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Reset PIN for ${member.displayName}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: pinController,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'New PIN',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: confirmController,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Confirm PIN',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            if (error != null) ...[
+              const SizedBox(height: 8),
+              Text(error!, style: const TextStyle(color: Colors.red)),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final pin = pinController.text.trim();
+              final confirm = confirmController.text.trim();
+              if (pin.length < 4) {
+                error = 'PIN must be at least 4 digits';
+              } else if (pin != confirm) {
+                error = 'PINs do not match';
+              } else {
+                Navigator.of(ctx).pop(true);
+              }
+              (ctx as Element).markNeedsBuild();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _repository.createOrUpdateMember(
+      companyId: widget.companyId,
+      memberId: member.memberId,
+      displayName: member.displayName,
+      role: member.role,
+      pin: pinController.text.trim(),
+      disabled: member.disabled,
+    );
+    await _refresh();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PIN updated')),
+      );
+    }
+  }
+
+  Future<void> _toggleDisable(CompanyMember member, bool disabled) async {
+    await _repository.createOrUpdateMember(
+      companyId: widget.companyId,
+      memberId: member.memberId,
+      displayName: member.displayName,
+      role: member.role,
+      disabled: disabled,
+    );
+    await _refresh();
   }
 
   @override
   Widget build(BuildContext context) {
-    final notifier = context.watch<AppNotifier>();
-    final state = notifier.state;
-    final staff = state.staff.toList()
-      ..sort((a, b) => a.displayName.compareTo(b.displayName));
-    final current = _resolveCurrentStaff(state);
-    final creationRoles = _creationRoles(current);
-    StaffRole? roleValue;
-    if (creationRoles.isNotEmpty) {
-      roleValue = creationRoles.contains(_selectedRole)
-          ? _selectedRole
-          : creationRoles.first;
-      if (_selectedRole != roleValue) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || roleValue == null) return;
-          setState(() => _selectedRole = roleValue!);
-        });
-      }
-    }
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Staff management')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+      appBar: AppBar(
+        title: const Text('Staff management'),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
           children: [
-            _buildCreateCard(
-              notifier: notifier,
-              current: current,
-              creationRoles: creationRoles,
-              roleValue: roleValue,
-            ),
+            if (widget.businessId != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.badge),
+                      const SizedBox(width: 8),
+                      const Text('Business ID:'),
+                      const SizedBox(width: 8),
+                      SelectableText(
+                        widget.businessId!,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
+            _buildCreateCard(),
             const SizedBox(height: 16),
-            Expanded(
-              child: staff.isEmpty
-                  ? const Center(child: Text('No staff yet'))
-                  : _buildStaffList(notifier, current, staff),
+            FutureBuilder<List<CompanyMember>>(
+              future: _loadFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final members = snapshot.data ?? [];
+                if (members.isEmpty) {
+                  return const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text('No staff yet'),
+                    ),
+                  );
+                }
+                return Card(
+                  child: ListView.separated(
+                    physics: const NeverScrollableScrollPhysics(),
+                    shrinkWrap: true,
+                    itemCount: members.length,
+                    separatorBuilder: (context, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final member = members[index];
+                      return ListTile(
+                        title: Text(member.displayName),
+                        subtitle: Text(member.role.toUpperCase()),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Reset PIN',
+                              icon: const Icon(Icons.key),
+                              onPressed: () => _resetPin(member),
+                            ),
+                            Switch(
+                              value: !member.disabled,
+                              onChanged: (value) =>
+                                  _toggleDisable(member, !value),
+                              activeThumbColor:
+                                  Theme.of(context).colorScheme.primary,
+                              inactiveThumbColor: Colors.red,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -72,13 +271,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     );
   }
 
-  Widget _buildCreateCard({
-    required AppNotifier notifier,
-    required StaffMember? current,
-    required List<StaffRole> creationRoles,
-    required StaffRole? roleValue,
-  }) {
-    final canCreate = current != null && creationRoles.isNotEmpty;
+  Widget _buildCreateCard() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12.0),
@@ -86,45 +279,34 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Create account',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _loginController,
-              enabled: canCreate,
-              decoration: const InputDecoration(
-                labelText: 'Login',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
+              'Add staff member',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _nameController,
-              enabled: canCreate,
               decoration: const InputDecoration(
                 labelText: 'Display name',
-                isDense: true,
                 border: OutlineInputBorder(),
+                isDense: true,
               ),
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<StaffRole>(
-              initialValue: roleValue,
-              items: creationRoles
-                  .map(
-                    (r) =>
-                        DropdownMenuItem(value: r, child: Text(_roleLabel(r))),
-                  )
-                  .toList(),
-              onChanged: canCreate
-                  ? (value) {
-                      if (value != null) {
-                        setState(() => _selectedRole = value);
-                      }
-                    }
-                  : null,
+            DropdownButtonFormField<String>(
+              initialValue: _role,
+              items: const [
+                DropdownMenuItem(
+                  value: 'manager',
+                  child: Text('Manager'),
+                ),
+                DropdownMenuItem(
+                  value: 'staff',
+                  child: Text('Staff'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _role = value);
+              },
               decoration: const InputDecoration(
                 labelText: 'Role',
                 border: OutlineInputBorder(),
@@ -133,328 +315,48 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
             ),
             const SizedBox(height: 8),
             TextField(
-              controller: _passwordController,
-              enabled: canCreate,
+              controller: _pinController,
+              keyboardType: TextInputType.number,
               obscureText: true,
               decoration: const InputDecoration(
-                labelText: 'Password',
-                isDense: true,
+                labelText: 'PIN (4+ digits)',
                 border: OutlineInputBorder(),
+                isDense: true,
               ),
             ),
             const SizedBox(height: 8),
-            if (_error != null)
+            TextField(
+              controller: _confirmController,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Confirm PIN',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
               Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,
               child: ElevatedButton.icon(
-                onPressed: canCreate
-                    ? () => _submit(notifier, roleValue)
-                    : null,
-                icon: const Icon(Icons.person_add),
-                label: const Text('Create'),
+                onPressed: _busy ? null : _createMember,
+                icon: _busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.person_add),
+                label: Text(_busy ? 'Saving...' : 'Create'),
               ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  Widget _buildStaffList(
-    AppNotifier notifier,
-    StaffMember? current,
-    List<StaffMember> staff,
-  ) {
-    return ListView.builder(
-      itemCount: staff.length,
-      itemBuilder: (context, index) {
-        final member = staff[index];
-        final canEdit = _canEditMember(current, member);
-        final canDelete = _canDeleteMember(current, member);
-        return ListTile(
-          leading: CircleAvatar(
-            child: Text(
-              member.displayName.isNotEmpty
-                  ? member.displayName[0].toUpperCase()
-                  : '?',
-            ),
-          ),
-          title: Text(member.displayName),
-          subtitle: Text('${member.login} • ${_roleLabel(member.role)}'),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: 'Edit account',
-                icon: const Icon(Icons.edit),
-                onPressed: canEdit
-                    ? () => _showEditDialog(notifier, member, current)
-                    : null,
-              ),
-              IconButton(
-                tooltip: 'Delete account',
-                icon: const Icon(Icons.delete),
-                onPressed: canDelete
-                    ? () => _confirmDelete(notifier, member)
-                    : null,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _submit(AppNotifier notifier, StaffRole? roleValue) {
-    final roleToCreate = roleValue;
-    final login = _loginController.text.trim();
-    final name = _nameController.text.trim();
-    final password = _passwordController.text;
-    if (roleToCreate == null) {
-      setState(() {
-        _error = 'You do not have permission to create accounts.';
-      });
-      return;
-    }
-    if (login.isEmpty || name.isEmpty || password.length < 4) {
-      setState(() {
-        _error = 'Login, name and password (min 4 chars) are required.';
-      });
-      return;
-    }
-    final error = notifier.createStaffAccount(
-      login,
-      name,
-      roleToCreate,
-      password,
-    );
-    if (error != null) {
-      setState(() => _error = error);
-    } else {
-      setState(() {
-        _error = null;
-        _loginController.clear();
-        _nameController.clear();
-        _passwordController.clear();
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Staff account created')));
-    }
-  }
-
-  StaffMember? _resolveCurrentStaff(AppState state) {
-    final activeId = state.activeStaffId;
-    if (activeId == null) return null;
-    for (final staff in state.staff) {
-      if (staff.id == activeId) return staff;
-    }
-    return null;
-  }
-
-  List<StaffRole> _creationRoles(StaffMember? current) {
-    if (current == null) return const [];
-    switch (current.role) {
-      case StaffRole.admin:
-        return StaffRole.values.toList();
-      case StaffRole.owner:
-        return const [StaffRole.manager, StaffRole.worker];
-      case StaffRole.manager:
-        return const [StaffRole.worker];
-      case StaffRole.worker:
-        return const [];
-    }
-  }
-
-  List<StaffRole> _editRoles(StaffMember? current, StaffMember target) {
-    if (current == null) return const [];
-    final roles = <StaffRole>{..._creationRoles(current)};
-    roles.add(target.role);
-    if (current.role == StaffRole.admin) {
-      roles.addAll(StaffRole.values);
-    }
-    if (current.id == target.id) {
-      roles.add(target.role);
-    }
-    if (current.role == StaffRole.owner && current.id == target.id) {
-      roles.add(StaffRole.owner);
-    }
-    if (current.role == StaffRole.manager && current.id == target.id) {
-      roles.add(StaffRole.manager);
-    }
-    return roles.toList();
-  }
-
-  bool _canEditMember(StaffMember? current, StaffMember target) {
-    if (current == null) return false;
-    if (current.id == target.id) return true;
-    switch (current.role) {
-      case StaffRole.admin:
-        return true;
-      case StaffRole.owner:
-        if (target.role == StaffRole.admin) return false;
-        if (target.role == StaffRole.owner) return false;
-        return true;
-      case StaffRole.manager:
-        return target.role == StaffRole.worker;
-      case StaffRole.worker:
-        return false;
-    }
-  }
-
-  bool _canDeleteMember(StaffMember? current, StaffMember target) {
-    if (current == null) return false;
-    if (current.id == target.id) return false;
-    return _canEditMember(current, target);
-  }
-
-  Future<void> _showEditDialog(
-    AppNotifier notifier,
-    StaffMember member,
-    StaffMember? current,
-  ) async {
-    final roles = _editRoles(current, member);
-    if (roles.isEmpty) return;
-    final nameController = TextEditingController(text: member.displayName);
-    final passwordController = TextEditingController();
-    StaffRole? selectedRole = roles.contains(member.role)
-        ? member.role
-        : roles.first;
-    String? error;
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text('Edit ${member.displayName}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Display name',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'New password (optional)',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<StaffRole>(
-                initialValue: selectedRole,
-                items: roles
-                    .map(
-                      (role) => DropdownMenuItem(
-                        value: role,
-                        child: Text(_roleLabel(role)),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  setDialogState(() => selectedRole = value);
-                },
-                decoration: const InputDecoration(
-                  labelText: 'Role',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              if (error != null) ...[
-                const SizedBox(height: 8),
-                Text(error!, style: const TextStyle(color: Colors.red)),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final name = nameController.text.trim();
-                if (name.isEmpty) {
-                  setDialogState(() => error = 'Name is required');
-                  return;
-                }
-                final pwd = passwordController.text.trim();
-                final res = notifier.updateStaffAccount(
-                  member.id,
-                  displayName: name,
-                  role: selectedRole,
-                  password: pwd.isEmpty ? null : pwd,
-                );
-                if (res != null) {
-                  setDialogState(() => error = res);
-                } else {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Updated ${member.displayName}')),
-                  );
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-    nameController.dispose();
-    passwordController.dispose();
-  }
-
-  Future<void> _confirmDelete(AppNotifier notifier, StaffMember member) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Delete ${member.displayName}?'),
-        content: const Text('This action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    if (!mounted) return;
-    final error = notifier.deleteStaffAccount(member.id);
-    if (error != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Deleted ${member.displayName}')));
-    }
-  }
-
-  String _roleLabel(StaffRole role) {
-    switch (role) {
-      case StaffRole.admin:
-        return 'Admin';
-      case StaffRole.owner:
-        return 'Owner';
-      case StaffRole.manager:
-        return 'Manager';
-      case StaffRole.worker:
-        return 'Worker';
-    }
   }
 }

@@ -17,6 +17,7 @@ abstract class RemoteRepository {
   Future<Product?> fetchProduct(String ownerId, String productId);
   Future<void> upsertProduct(String ownerId, Product product);
   Future<void> deleteProduct(String ownerId, String productId);
+  Future<void> upsertProductsBatch(String ownerId, List<Product> products);
 
   // Group CRUD
   Future<List<Group>> listGroups(String ownerId);
@@ -26,11 +27,18 @@ abstract class RemoteRepository {
   // Inventory CRUD
   Future<List<InventoryItem>> listInventory(String ownerId);
   Future<void> upsertInventoryItem(String ownerId, InventoryItem item);
+  Future<void> upsertInventoryBatch(String ownerId, List<InventoryItem> items);
   Future<void> deleteInventoryItem(String ownerId, String itemId);
 
   // Order CRUD
   Future<List<OrderItem>> listOrders(String ownerId);
   Future<void> upsertOrder(String ownerId, OrderItem order);
+  Future<String> createOrder(String ownerId, OrderItem order);
+  Future<void> updateOrderStatus(
+    String ownerId,
+    String orderId,
+    OrderStatus status,
+  );
   Future<void> deleteOrder(String ownerId, String orderId);
 
   // History CRUD

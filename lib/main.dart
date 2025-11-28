@@ -14,20 +14,26 @@ import 'core/app_state.dart';
 import 'core/app_storage.dart';
 import 'core/config.dart';
 import 'core/error_reporter.dart';
-import 'core/models/history_entry.dart';
 import 'core/models/order_item.dart';
-import 'core/models/staff_member.dart';
 import 'models/company.dart';
+import 'models/company_member.dart';
 import 'core/print_service.dart';
 import 'core/remote/backend_config.dart';
 import 'core/remote/remote_repository.dart';
 import 'core/remote/remote_sync_service.dart';
-import 'core/security/security_config.dart';
 import 'core/undo_manager.dart';
 import 'core/web_refresh.dart';
+import 'data/company_repository.dart';
+import 'data/staff_repository.dart';
+import 'data/user_profile_repository.dart';
+import 'models/cloud_user_role.dart';
+import 'ui/screens/auth/auth_role_landing_screen.dart';
 import 'ui/screens/auth/firebase_email_auth_screen.dart';
-import 'ui/screens/auth/login_screen.dart';
+import 'ui/screens/auth/staff_login_screen.dart';
 import 'ui/screens/company/company_selector_screen.dart';
+import 'ui/screens/company/company_settings_screen.dart';
+import 'ui/screens/company/join_company_placeholder.dart';
+import 'ui/screens/company/join_company_code_dialog.dart';
 import 'ui/screens/bar/bar_screen.dart';
 import 'ui/screens/bar/low_screen.dart';
 import 'ui/screens/history/history_screen.dart';
@@ -76,14 +82,15 @@ class SmartBarApp extends StatefulWidget {
 }
 
 enum _AppMenuAction { search, statistics }
+enum _AuthFlow { landing, ownerEmail, staffPin }
 
 class _SmartBarAppState extends State<SmartBarApp> {
   bool _loading = true;
   bool _syncingCloud = false;
   int _selectedIndex = 0;
-  StaffMember? _activeStaff;
-  String? _authError;
-  bool _authBusy = false;
+  CompanyMember? _activeStaff;
+  String? _lastBusinessId;
+  _AuthFlow _authFlow = _AuthFlow.landing;
   Company? _activeCompany;
 
   final PrintService _printService = const PrintService();
@@ -91,11 +98,15 @@ class _SmartBarAppState extends State<SmartBarApp> {
   FirebaseAuth? _firebaseAuth;
   User? _firebaseUser;
   StreamSubscription<User?>? _authSubscription;
+  final UserProfileRepository _userProfileRepository = UserProfileRepository();
+  final CompanyRepository _companyRepository = CompanyRepository();
+  final StaffRepository _staffRepository = StaffRepository();
   String _barId = BackendConfig.defaultBarId;
   late final RemoteRepository _remoteRepository;
   late final RemoteSyncService _remoteSyncService;
   late final AppNotifier _appNotifier;
   late final bool _firebaseAvailable;
+  CloudUserRole? _selectedRoleChoice;
 
   AppState get _state => _appNotifier.state;
 
@@ -135,6 +146,7 @@ class _SmartBarAppState extends State<SmartBarApp> {
       await _remoteSyncService.dispose();
       _firebaseUser = null;
       _appNotifier.setCurrentUserId(null);
+      _appNotifier.setCloudUserRole(null);
       _appNotifier.replaceState(AppState.initial());
       AppLogic.setCurrentStaff(null);
       AppStorage.setActiveBar(BackendConfig.defaultBarId);
@@ -143,15 +155,28 @@ class _SmartBarAppState extends State<SmartBarApp> {
         _selectedIndex = 0;
         _loading = false;
         _activeCompany = null;
+        _selectedRoleChoice = null;
+        _authFlow = _AuthFlow.landing;
       });
       return;
     }
     _firebaseUser = user;
     _appNotifier.setCurrentUserId(user.uid);
+    CloudUserRole? role =
+        await _userProfileRepository.fetchRole(user.uid);
+    role ??= _selectedRoleChoice;
+    if (role != null) {
+      await _userProfileRepository.setRole(user.uid, role);
+    }
+    _appNotifier.setCloudUserRole(role);
+    final resolvedFlow =
+        _authFlow == _AuthFlow.staffPin ? _AuthFlow.staffPin : _AuthFlow.ownerEmail;
     setState(() {
       _loading = false;
       _activeStaff = null;
       _selectedIndex = 0;
+      _selectedRoleChoice = role;
+      _authFlow = resolvedFlow;
     });
   }
 
@@ -198,15 +223,11 @@ class _SmartBarAppState extends State<SmartBarApp> {
     resolvedState.activeCompanyId = companyId;
     _appNotifier.replaceState(resolvedState);
     if (!mounted) return;
-    final resolvedStaff = _staffFromState(
-      resolvedState,
-      resolvedState.activeStaffId,
-    );
     setState(() {
-      _activeStaff = resolvedStaff;
+      _activeStaff = _activeStaff;
       _loading = false;
     });
-    AppLogic.setCurrentStaff(resolvedStaff);
+    AppLogic.setCurrentStaff(null);
     if (_firebaseAvailable) {
       _remoteSyncService.start(_barId);
     }
@@ -222,14 +243,15 @@ class _SmartBarAppState extends State<SmartBarApp> {
     Company company,
   ) async {
     if (!_firebaseAvailable || _firebaseAuth == null) return;
+    final ownerMember = _ownerSessionMember(companyId);
     setState(() {
       _activeCompany = company;
-      _activeStaff = null;
+      _activeStaff = ownerMember;
       _selectedIndex = 0;
     });
     AppLogic.setCurrentStaff(null);
-    _appNotifier.setActiveStaffId(null);
     _appNotifier.setActiveCompanyId(companyId);
+    _appNotifier.setCurrentStaffMember(ownerMember);
     await _remoteSyncService.dispose();
     await _loadInitialForUser(companyId);
   }
@@ -277,6 +299,41 @@ class _SmartBarAppState extends State<SmartBarApp> {
     });
   }
 
+  void _openCompanySettings(BuildContext context) {
+    final companyId = _appNotifier.state.activeCompanyId;
+    if (companyId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a company first')),
+      );
+      return;
+    }
+    final canRegenerate = _isOwner;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CompanySettingsScreen(
+          companyId: companyId,
+          repository: _companyRepository,
+          canRegenerate: canRegenerate,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showJoinCompanyDialog(BuildContext context) async {
+    if (_firebaseUser == null) return;
+    final joinedCompany = await showDialog<Company>(
+      context: context,
+      builder: (ctx) => JoinCompanyCodeDialog(
+        repository: _companyRepository,
+        userId: _firebaseUser!.uid,
+        userEmail: _firebaseUser!.email,
+      ),
+    );
+    if (joinedCompany != null) {
+      await _handleCompanySelected(joinedCompany.companyId, joinedCompany);
+    }
+  }
+
   @override
   void dispose() {
     _appNotifier.removeListener(_handleAppStateChanged);
@@ -286,33 +343,17 @@ class _SmartBarAppState extends State<SmartBarApp> {
     super.dispose();
   }
 
-  void _ensureDefaultAdmin(AppState state) {
-    final hasAdmin = state.staff.any(
-      (member) => member.role == StaffRole.admin,
-    );
-    if (hasAdmin) return;
-    state.staff.add(
-      StaffMember.create(
-        login: 'admin',
-        displayName: 'Admin',
-        role: StaffRole.admin,
-        password: defaultAdminPin,
-      ),
-    );
-  }
+  void _ensureDefaultAdmin(AppState state) {}
 
   bool get _hasManagementAccess {
-    final role = _activeStaff?.role;
-    return role == StaffRole.admin ||
-        role == StaffRole.owner ||
-        role == StaffRole.manager;
+    final role = (_activeStaff?.role ?? '').toLowerCase();
+    return role == 'owner' || role == 'manager';
   }
 
-  bool get _isAdmin => _activeStaff?.role == StaffRole.admin;
-  bool get _isOwner => _activeStaff?.role == StaffRole.owner;
-  bool get _isManager => _activeStaff?.role == StaffRole.manager;
+  bool get _isOwner => (_activeStaff?.role ?? '').toLowerCase() == 'owner';
+  bool get _isManager => (_activeStaff?.role ?? '').toLowerCase() == 'manager';
   bool get _canAccessStaffManagement =>
-      _activeStaff != null && (_isAdmin || _isOwner || _isManager);
+      _activeStaff != null && (_isOwner || _isManager);
 
   void _persistState() {
     _appNotifier.persistState();
@@ -325,21 +366,20 @@ class _SmartBarAppState extends State<SmartBarApp> {
   }
 
   void _onUndo(BuildContext ctx) {
-    final role = _activeStaff?.role;
-    if (!_appNotifier.canUndoForRole(role)) {
+    if (!_appNotifier.canUndoForRole(null)) {
       ScaffoldMessenger.of(ctx).showSnackBar(
         const SnackBar(content: Text('No undo actions available')),
       );
       return;
     }
-    final restored = _appNotifier.restoreLatestUndo(role);
+    final restored = _appNotifier.restoreLatestUndo(null);
     if (!restored) {
       ScaffoldMessenger.of(ctx).showSnackBar(
         const SnackBar(content: Text('No undoable actions available')),
       );
       return;
     }
-    AppLogic.setCurrentStaff(_activeStaff);
+    AppLogic.setCurrentStaff(null);
     _persistState();
     ScaffoldMessenger.of(
       ctx,
@@ -391,136 +431,6 @@ class _SmartBarAppState extends State<SmartBarApp> {
     ).push(MaterialPageRoute(builder: (_) => const StatisticsScreen()));
   }
 
-  void _handleLogin(String login, String password) async {
-    setState(() {
-      _authBusy = true;
-      _authError = null;
-    });
-
-    final normalized = login.trim().toLowerCase();
-    StaffMember? staff = _findStaffByLogin(normalized);
-
-    if (staff == null) {
-      try {
-        staff = await _maybeProvisionFirebaseAdmin(normalized, password);
-      } on FirebaseAuthException {
-        setState(() {
-          _authBusy = false;
-          _authError = 'Invalid credentials';
-        });
-        return;
-      }
-      if (staff == null) {
-        setState(() {
-          _authBusy = false;
-          _authError = 'User not found';
-        });
-        return;
-      }
-    }
-
-    if (firebaseAdminAccounts.containsKey(normalized) &&
-        staff.role != StaffRole.admin) {
-      staff.role = StaffRole.admin;
-      _persistState();
-    }
-
-    if (!staff.verifyPassword(password)) {
-      setState(() {
-        _authBusy = false;
-        _authError = 'Invalid credentials';
-      });
-      return;
-    }
-
-    setState(() {
-      _authBusy = false;
-      _authError = null;
-      _activeStaff = staff;
-    });
-    _appNotifier.setActiveStaffId(staff.id);
-
-    AppLogic.setCurrentStaff(staff);
-    AppLogic.logCustomAction(
-      _state,
-      action: '${staff.displayName} logged in',
-      kind: HistoryKind.auth,
-      actionType: HistoryActionType.login,
-      actor: staff,
-    );
-    _signInWithFirebase(login, password, staff);
-    _persistState();
-  }
-
-  Future<void> _signInWithFirebase(
-    String email,
-    String password,
-    StaffMember staff,
-  ) async {
-    if (!_firebaseAvailable || _firebaseAuth == null) return;
-    try {
-      final credential = await _firebaseAuth!.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      final user = credential.user;
-      if (user != null) {
-        await _switchBar(user.uid, preferredStaff: staff);
-      }
-    } catch (err, stack) {
-      ErrorReporter.logException(
-        err,
-        stack,
-        reason: 'Firebase auth sign in failed',
-      );
-    }
-  }
-
-  StaffMember? _findStaffByLogin(String login) {
-    for (final member in _state.staff) {
-      if (member.login == login) {
-        return member;
-      }
-    }
-    return null;
-  }
-
-  Future<StaffMember?> _maybeProvisionFirebaseAdmin(
-    String login,
-    String password,
-  ) async {
-    final displayName = firebaseAdminAccounts[login];
-    if (displayName == null) return null;
-    if (!_firebaseAvailable || _firebaseAuth == null) return null;
-    final credential = await _firebaseAuth!.signInWithEmailAndPassword(
-      email: login,
-      password: password,
-    );
-    final resolvedName = credential.user?.displayName;
-    final creationError = _appNotifier.createStaffAccount(
-      login,
-      (resolvedName?.isNotEmpty ?? false) ? resolvedName! : displayName,
-      StaffRole.admin,
-      password,
-    );
-    if (creationError != null && creationError.isNotEmpty) {
-      ErrorReporter.logMessage(
-        'Provisioning admin for $login failed: $creationError',
-      );
-    }
-    return _findStaffByLogin(login);
-  }
-
-  StaffMember? _staffFromState(AppState state, String? staffId) {
-    if (staffId == null) return null;
-    for (final member in state.staff) {
-      if (member.id == staffId) {
-        return member;
-      }
-    }
-    return null;
-  }
-
   void _handleRemoteState(AppState remoteState) {
     if (!mounted) return;
     final localJson = _appNotifier.state.toJson();
@@ -528,81 +438,48 @@ class _SmartBarAppState extends State<SmartBarApp> {
     if (mapEquals(localJson, remoteJson)) {
       return;
     }
-    final remoteStaff = _staffFromState(remoteState, remoteState.activeStaffId);
-    setState(() {
-      _activeStaff = remoteStaff;
-    });
     _appNotifier.replaceState(remoteState);
-    AppLogic.setCurrentStaff(remoteStaff);
-  }
-
-  Future<void> _switchBar(
-    String newBarId, {
-    StaffMember? preferredStaff,
-    bool clearActiveStaff = false,
-  }) async {
-    if (!_firebaseAvailable) return;
-    if (_barId == newBarId) {
-      AppStorage.setActiveBar(_barId);
-      _remoteSyncService.start(_barId);
-      return;
-    }
-    _barId = newBarId;
-    AppStorage.setActiveBar(_barId);
-    var nextState = await _remoteRepository.loadState(_barId);
-    if (nextState == null) {
-      nextState = _appNotifier.state.copy();
-      await _remoteRepository.saveState(_barId, nextState);
-    }
-    if (clearActiveStaff) {
-      nextState.activeStaffId = null;
-    } else if (preferredStaff != null) {
-      nextState.activeStaffId = preferredStaff.id;
-    }
-    final resolvedStaff =
-        preferredStaff ?? _staffFromState(nextState, nextState.activeStaffId);
-    if (!mounted) return;
-    _appNotifier.replaceState(nextState);
-    setState(() {
-      _activeStaff = resolvedStaff;
-    });
-    AppLogic.setCurrentStaff(resolvedStaff);
-    if (_firebaseAvailable) {
-      _remoteSyncService.start(_barId);
-    }
-  }
-
-  void _logout(BuildContext context) {
-    final staff = _activeStaff;
-    if (staff != null) {
-      AppLogic.logCustomAction(
-        _state,
-        action: '${staff.displayName} logged out',
-        kind: HistoryKind.auth,
-        actionType: HistoryActionType.logout,
-        actor: staff,
-      );
-    }
-    setState(() {
-      _activeStaff = null;
-      _selectedIndex = 0;
-    });
-    _appNotifier.setActiveStaffId(null);
     AppLogic.setCurrentStaff(null);
-    _persistState();
+  }
+
+  void _logoutStaff(BuildContext context) {
+    setState(() {
+      _lastBusinessId = _activeCompany?.businessId ?? _lastBusinessId;
+      _activeStaff = null;
+      _activeCompany = null;
+      _selectedIndex = 0;
+      _authFlow = _AuthFlow.landing;
+      _selectedRoleChoice = null;
+    });
+    _appNotifier.setCurrentStaffMember(null);
+    _appNotifier.setActiveCompanyId(null);
+    _appNotifier.setCloudUserRole(null);
+    _appNotifier.setCurrentUserId(null);
+    AppLogic.setCurrentStaff(null);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Signed out')),
+      const SnackBar(content: Text('Staff logged out')),
     );
     if (_firebaseAvailable) {
       _firebaseAuth?.signOut();
-    } else {
-      _switchBar(BackendConfig.defaultBarId, clearActiveStaff: true);
+    }
+  }
+
+  Future<void> _logoutAll(BuildContext context) async {
+    _logoutStaff(context);
+    setState(() {
+      _selectedRoleChoice = null;
+      _authFlow = _AuthFlow.landing;
+    });
+    _appNotifier.setCloudUserRole(null);
+    _appNotifier.setCurrentUserId(null);
+    if (_firebaseAvailable) {
+      await _firebaseAuth?.signOut();
     }
   }
 
   void _showManagementWarning(BuildContext ctx) {
     ScaffoldMessenger.of(ctx).showSnackBar(
-      const SnackBar(content: Text('Manager or admin permissions required')),
+      const SnackBar(content: Text('Owner or manager permissions required')),
     );
   }
 
@@ -612,21 +489,98 @@ class _SmartBarAppState extends State<SmartBarApp> {
     ).push(MaterialPageRoute(builder: (_) => const HistoryScreen()));
   }
 
+  Future<void> _handleStaffLogin(
+    String businessId,
+    String pin,
+  ) async {
+    final messenger = ScaffoldMessenger.maybeOf(
+          _navigatorKey.currentContext ?? context) ??
+        ScaffoldMessenger.maybeOf(context);
+    setState(() => _loading = true);
+    if (_firebaseAvailable &&
+        _firebaseAuth != null &&
+        _firebaseAuth!.currentUser == null) {
+      try {
+        await _firebaseAuth!.signInAnonymously();
+      } catch (err, stack) {
+        ErrorReporter.logException(
+          err,
+          stack,
+          reason: 'Anonymous sign-in for staff failed',
+        );
+      }
+    }
+    final company =
+        await _companyRepository.fetchCompanyByBusinessId(businessId);
+    if (company == null) {
+      setState(() => _loading = false);
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Invalid Business ID')),
+      );
+      return;
+    }
+    final member = await _staffRepository.findByPin(
+      companyId: company.companyId,
+      pin: pin,
+    );
+    if (member == null) {
+      setState(() => _loading = false);
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Invalid PIN')),
+      );
+      return;
+    }
+    if (member.disabled) {
+      setState(() => _loading = false);
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Staff member disabled')),
+      );
+      return;
+    }
+    setState(() {
+      _activeCompany = company;
+      _activeStaff = member;
+      _selectedIndex = 0;
+      _authFlow = _AuthFlow.staffPin;
+      _lastBusinessId = company.businessId;
+    });
+    _appNotifier.setActiveCompanyId(company.companyId);
+    _appNotifier.setCurrentStaffMember(member);
+    await _remoteSyncService.dispose();
+    await _loadInitialForUser(company.companyId);
+    setState(() => _loading = false);
+  }
+
   void _openStaffManagement(BuildContext ctx) {
     if (!_canAccessStaffManagement) {
       _showStaffAccessWarning(ctx);
       return;
     }
+    final companyId = _appNotifier.state.activeCompanyId;
+    if (companyId == null) {
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        const SnackBar(content: Text('Select a company first')),
+      );
+      return;
+    }
     Navigator.of(
       ctx,
-    ).push(MaterialPageRoute(builder: (_) => const StaffManagementScreen()));
+    ).push(
+      MaterialPageRoute(
+        builder: (_) => StaffManagementScreen(
+          companyId: companyId,
+          businessId: _activeCompany?.businessId,
+          repository: _staffRepository,
+        ),
+      ),
+    );
   }
 
   void _showStaffAccessWarning(BuildContext ctx) {
     ScaffoldMessenger.of(ctx).showSnackBar(
       const SnackBar(
         content: Text(
-          'Staff management is available to managers, owners or admins',
+          'Staff management is available to owners or managers',
         ),
       ),
     );
@@ -668,6 +622,20 @@ class _SmartBarAppState extends State<SmartBarApp> {
         setState(() => _syncingCloud = false);
       }
     });
+  }
+
+  CompanyMember _ownerSessionMember(String companyId) {
+    final now = DateTime.now();
+    return CompanyMember(
+      memberId: _firebaseUser?.uid ?? 'owner-session',
+      companyId: companyId,
+      displayName: _firebaseUser?.email ?? 'Owner',
+      role: 'owner',
+      pinHash: '',
+      pinSalt: '',
+      createdAt: now,
+      updatedAt: now,
+    );
   }
 
   void _onCloudDownload(BuildContext ctx) {
@@ -719,19 +687,71 @@ class _SmartBarAppState extends State<SmartBarApp> {
   }
 
   Widget _buildBody(BuildContext context) {
+    if (_authFlow == _AuthFlow.staffPin && _activeStaff == null) {
+      return StaffLoginScreen(
+        initialBusinessId: _lastBusinessId,
+        onSubmit: (businessId, pin) => _handleStaffLogin(businessId, pin),
+        onBack: () {
+          setState(() {
+            _authFlow = _AuthFlow.landing;
+            _selectedRoleChoice = null;
+          });
+        },
+      );
+    }
+
     if (_firebaseAvailable &&
         _firebaseAuth != null &&
-        _firebaseUser == null) {
-      return FirebaseEmailAuthScreen(auth: _firebaseAuth!);
+        _firebaseUser == null &&
+        _authFlow != _AuthFlow.staffPin) {
+      if (_selectedRoleChoice == null || _authFlow == _AuthFlow.landing) {
+        return AuthRoleLandingScreen(
+          onRoleSelected: (role) {
+            setState(() {
+              _selectedRoleChoice = role;
+              _authFlow = role == CloudUserRole.owner
+                  ? _AuthFlow.ownerEmail
+                  : _AuthFlow.staffPin;
+              if (role == CloudUserRole.owner) {
+                _appNotifier.setCloudUserRole(role);
+              }
+            });
+          },
+        );
+      }
+      return FirebaseEmailAuthScreen(
+        auth: _firebaseAuth!,
+        role: CloudUserRole.owner,
+        onBack: () {
+          setState(() {
+            _selectedRoleChoice = null;
+            _authFlow = _AuthFlow.landing;
+            _appNotifier.setCloudUserRole(null);
+          });
+        },
+      );
     }
+
+    final cloudRole = _appNotifier.cloudUserRole ?? _selectedRoleChoice;
 
     final needsCompanySelection = _firebaseAvailable &&
         _firebaseUser != null &&
         (_appNotifier.state.activeCompanyId == null);
     if (needsCompanySelection) {
+      final allowCreate = cloudRole != CloudUserRole.worker;
       return CompanySelectorScreen(
         currentUserId: _firebaseUser!.uid,
+        currentUserEmail: _firebaseUser!.email,
         onCompanySelected: _handleCompanySelected,
+        allowCreate: allowCreate,
+        emptyPlaceholder: allowCreate
+            ? null
+            : JoinCompanyPlaceholder(
+                onRefresh: () => setState(() {}),
+                onSignOut: () => _logoutAll(context),
+                onEnterCode: () => _showJoinCompanyDialog(context),
+              ),
+        role: cloudRole,
       );
     }
 
@@ -740,10 +760,9 @@ class _SmartBarAppState extends State<SmartBarApp> {
     }
 
     if (_activeStaff == null) {
-      return LoginScreen(
-        onLogin: _handleLogin,
-        busy: _authBusy,
-        errorMessage: _authError,
+      return StaffLoginScreen(
+        initialBusinessId: _lastBusinessId,
+        onSubmit: (businessId, pin) => _handleStaffLogin(businessId, pin),
       );
     }
 
@@ -843,11 +862,17 @@ class _SmartBarAppState extends State<SmartBarApp> {
           icon: const Icon(Icons.refresh),
           onPressed: refreshWebApp,
         ),
+      if (_isOwner || _isManager)
+        IconButton(
+          tooltip: 'Company settings',
+          icon: const Icon(Icons.admin_panel_settings),
+          onPressed: () => _openCompanySettings(ctx),
+        ),
       if (_firebaseAvailable && _firebaseUser != null)
         IconButton(
           tooltip: 'Switch company',
           icon: const Icon(Icons.apartment),
-          onPressed: () => _promptCompanySwitch(ctx),
+          onPressed: _isOwner ? () => _promptCompanySwitch(ctx) : null,
         ),
       IconButton(
         tooltip: 'Download cloud data',
@@ -867,9 +892,7 @@ class _SmartBarAppState extends State<SmartBarApp> {
       IconButton(
         tooltip: 'Undo last action',
         icon: const Icon(Icons.undo),
-        onPressed:
-            _activeStaff == null ||
-                !_appNotifier.canUndoForRole(_activeStaff!.role)
+        onPressed: !_appNotifier.canUndoForRole(null)
             ? null
             : () => _onUndo(ctx),
       ),
@@ -885,9 +908,14 @@ class _SmartBarAppState extends State<SmartBarApp> {
           onPressed: () => _openStaffManagement(ctx),
         ),
       IconButton(
-        tooltip: 'Logout',
+        tooltip: 'Log out staff',
         icon: const Icon(Icons.logout),
-        onPressed: () => _logout(ctx),
+        onPressed: () => _logoutStaff(ctx),
+      ),
+      IconButton(
+        tooltip: 'Log out completely',
+        icon: const Icon(Icons.exit_to_app),
+        onPressed: () => _logoutAll(ctx),
       ),
     ];
   }

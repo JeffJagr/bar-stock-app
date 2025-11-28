@@ -1,11 +1,20 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../../models/cloud_user_role.dart';
+
 /// Simple email/password auth screen dedicated to FirebaseAuth flows.
 class FirebaseEmailAuthScreen extends StatefulWidget {
-  const FirebaseEmailAuthScreen({super.key, required this.auth});
+  const FirebaseEmailAuthScreen({
+    super.key,
+    required this.auth,
+    required this.role,
+    this.onBack,
+  });
 
   final FirebaseAuth auth;
+  final CloudUserRole role;
+  final VoidCallback? onBack;
 
   @override
   State<FirebaseEmailAuthScreen> createState() =>
@@ -88,6 +97,21 @@ class _FirebaseEmailAuthScreenState extends State<FirebaseEmailAuthScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (widget.onBack != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      onPressed: widget.onBack,
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                  ),
+                Text(
+                  widget.role == CloudUserRole.owner
+                      ? 'Business Owner'
+                      : 'Worker / Staff',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
                 Text(
                   _creatingAccount ? 'Create account' : 'Sign in',
                   style: theme.textTheme.headlineSmall,

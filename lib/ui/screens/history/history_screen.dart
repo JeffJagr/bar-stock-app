@@ -312,6 +312,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     itemBuilder: (context, index) {
                       final entry = filtered[index];
                       final message = HistoryFormatter.describe(entry);
+                      final canUndo =
+                          notifier.canUndoEntry(entry);
                       return Card(
                         margin: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 6),
@@ -336,6 +338,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               ),
                             ],
                           ),
+                          trailing: canUndo
+                              ? TextButton(
+                                  onPressed: () => _onUndoEntry(
+                                    context,
+                                    notifier,
+                                    entry,
+                                  ),
+                                  child: const Text('Undo'),
+                                )
+                              : null,
                         ),
                       );
                     },
@@ -473,6 +485,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final m = date.month.toString().padLeft(2, '0');
     final d = date.day.toString().padLeft(2, '0');
     return '$y-$m-$d';
+  }
+
+  void _onUndoEntry(
+    BuildContext context,
+    AppNotifier notifier,
+    HistoryEntry entry,
+  ) {
+    final success = notifier.undoEntry(entry);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          success ? 'Action undone' : 'Cannot undo this entry',
+        ),
+      ),
+    );
   }
 }
 

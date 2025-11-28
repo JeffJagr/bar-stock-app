@@ -67,4 +67,7 @@ class FirebaseService {
     String companyId,
   ) =>
       companyDocument(companyId).collection('staff');
+
+  CollectionReference<Map<String, dynamic>> get usersCollection =>
+      firestore.collection('users');
 }

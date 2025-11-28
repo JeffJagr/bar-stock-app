@@ -88,12 +88,58 @@ class FirebaseRemoteRepository implements RemoteRepository {
   }
 
   @override
-  Future<void> upsertProduct(String ownerId, Product product) =>
-      _unsupportedWrite('upsertProduct');
+  Future<void> upsertProduct(String ownerId, Product product) async {
+    try {
+      final payload = {
+        ...product.toJson(),
+        'companyId': product.companyId ?? ownerId,
+      };
+      await _service
+          .productsCollection(ownerId)
+          .doc(product.id)
+          .set(payload, SetOptions(merge: true));
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'upsertProduct failed');
+    }
+  }
 
   @override
-  Future<void> deleteProduct(String ownerId, String productId) =>
-      _unsupportedWrite('deleteProduct');
+  Future<void> upsertProductsBatch(
+    String ownerId,
+    List<Product> products,
+  ) async {
+    if (products.isEmpty) return;
+    try {
+      final batch = _service.firestore.batch();
+      for (final product in products) {
+        final payload = {
+          ...product.toJson(),
+          'companyId': product.companyId ?? ownerId,
+        };
+        batch.set(
+          _service.productsCollection(ownerId).doc(product.id),
+          payload,
+          SetOptions(merge: true),
+        );
+      }
+      await batch.commit();
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'upsertProductsBatch failed',
+      );
+    }
+  }
+
+  @override
+  Future<void> deleteProduct(String ownerId, String productId) async {
+    try {
+      await _service.productsCollection(ownerId).doc(productId).delete();
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'deleteProduct failed');
+    }
+  }
 
   @override
   Future<List<Group>> listGroups(String ownerId) async {
@@ -112,12 +158,29 @@ class FirebaseRemoteRepository implements RemoteRepository {
   }
 
   @override
-  Future<void> upsertGroup(String ownerId, Group group) =>
-      _unsupportedWrite('upsertGroup');
+  Future<void> upsertGroup(String ownerId, Group group) async {
+    try {
+      final payload = {
+        ...group.toJson(),
+        'companyId': group.companyId ?? ownerId,
+      };
+      await _service
+          .groupsCollection(ownerId)
+          .doc(group.name)
+          .set(payload, SetOptions(merge: true));
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'upsertGroup failed');
+    }
+  }
 
   @override
-  Future<void> deleteGroup(String ownerId, String groupName) =>
-      _unsupportedWrite('deleteGroup');
+  Future<void> deleteGroup(String ownerId, String groupName) async {
+    try {
+      await _service.groupsCollection(ownerId).doc(groupName).delete();
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'deleteGroup failed');
+    }
+  }
 
   @override
   Future<List<InventoryItem>> listInventory(String ownerId) =>
@@ -145,12 +208,66 @@ class FirebaseRemoteRepository implements RemoteRepository {
   }
 
   @override
-  Future<void> upsertInventoryItem(String ownerId, InventoryItem item) =>
-      _unsupportedWrite('upsertInventoryItem');
+  Future<void> upsertInventoryItem(String ownerId, InventoryItem item) async {
+    try {
+      final payload = {
+        ...item.toJson(),
+        'companyId': item.companyId ?? ownerId,
+      };
+      await _service
+          .inventoryCollection(ownerId)
+          .doc(item.product.id)
+          .set(payload, SetOptions(merge: true));
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'upsertInventoryItem failed',
+      );
+    }
+  }
 
   @override
-  Future<void> deleteInventoryItem(String ownerId, String itemId) =>
-      _unsupportedWrite('deleteInventoryItem');
+  Future<void> upsertInventoryBatch(
+    String ownerId,
+    List<InventoryItem> items,
+  ) async {
+    if (items.isEmpty) return;
+    try {
+      final batch = _service.firestore.batch();
+      for (final item in items) {
+        final payload = {
+          ...item.toJson(),
+          'companyId': item.companyId ?? ownerId,
+        };
+        batch.set(
+          _service.inventoryCollection(ownerId).doc(item.product.id),
+          payload,
+          SetOptions(merge: true),
+        );
+      }
+      await batch.commit();
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'upsertInventoryBatch failed',
+      );
+    }
+  }
+
+  @override
+  Future<void> deleteInventoryItem(String ownerId, String itemId) async {
+    try {
+      await _service.inventoryCollection(ownerId).doc(itemId).delete();
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'deleteInventoryItem failed',
+      );
+    }
+  }
 
   @override
   Future<List<OrderItem>> listOrders(String ownerId) =>
@@ -178,12 +295,60 @@ class FirebaseRemoteRepository implements RemoteRepository {
   }
 
   @override
-  Future<void> upsertOrder(String ownerId, OrderItem order) =>
-      _unsupportedWrite('upsertOrder');
+  Future<void> upsertOrder(String ownerId, OrderItem order) async {
+    try {
+      final payload = {
+        ...order.toJson(),
+        'companyId': order.companyId ?? ownerId,
+      };
+      await _service
+          .ordersCollection(ownerId)
+          .doc(order.product.id)
+          .set(payload, SetOptions(merge: true));
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'upsertOrder failed');
+    }
+  }
 
   @override
-  Future<void> deleteOrder(String ownerId, String orderId) =>
-      _unsupportedWrite('deleteOrder');
+  Future<String> createOrder(String ownerId, OrderItem order) async {
+    try {
+      await upsertOrder(ownerId, order);
+      return order.product.id;
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'createOrder failed');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> updateOrderStatus(
+    String ownerId,
+    String orderId,
+    OrderStatus status,
+  ) async {
+    try {
+      await _service.ordersCollection(ownerId).doc(orderId).set(
+            {'status': status.name},
+            SetOptions(merge: true),
+          );
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'updateOrderStatus failed',
+      );
+    }
+  }
+
+  @override
+  Future<void> deleteOrder(String ownerId, String orderId) async {
+    try {
+      await _service.ordersCollection(ownerId).doc(orderId).delete();
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'deleteOrder failed');
+    }
+  }
 
   @override
   Future<List<HistoryEntry>> listHistory(String ownerId) async {
@@ -204,12 +369,26 @@ class FirebaseRemoteRepository implements RemoteRepository {
   }
 
   @override
-  Future<void> addHistoryEntry(String ownerId, HistoryEntry entry) =>
-      _unsupportedWrite('addHistoryEntry');
+  Future<void> addHistoryEntry(String ownerId, HistoryEntry entry) async {
+    try {
+      await _service.historyCollection(ownerId).add(entry.toJson());
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'addHistoryEntry failed');
+    }
+  }
 
   @override
-  Future<void> deleteHistoryEntry(String ownerId, String entryId) =>
-      _unsupportedWrite('deleteHistoryEntry');
+  Future<void> deleteHistoryEntry(String ownerId, String entryId) async {
+    try {
+      await _service.historyCollection(ownerId).doc(entryId).delete();
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'deleteHistoryEntry failed',
+      );
+    }
+  }
 
   @override
   Future<List<StaffMember>> listStaff(String ownerId) async {

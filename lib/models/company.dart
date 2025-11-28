@@ -6,12 +6,16 @@ class Company {
   final String name;
   final String ownerUserId;
   final DateTime createdAt;
+  final String joinCode;
+  final String businessId;
 
   const Company({
     required this.companyId,
     required this.name,
     required this.ownerUserId,
     required this.createdAt,
+    required this.joinCode,
+    required this.businessId,
   });
 
   Company copyWith({
@@ -19,12 +23,16 @@ class Company {
     String? name,
     String? ownerUserId,
     DateTime? createdAt,
+    String? joinCode,
+    String? businessId,
   }) {
     return Company(
       companyId: companyId ?? this.companyId,
       name: name ?? this.name,
       ownerUserId: ownerUserId ?? this.ownerUserId,
       createdAt: createdAt ?? this.createdAt,
+      joinCode: joinCode ?? this.joinCode,
+      businessId: businessId ?? this.businessId,
     );
   }
 
@@ -43,6 +51,11 @@ class Company {
       name: json['name'] as String? ?? '',
       ownerUserId: json['ownerUserId'] as String? ?? '',
       createdAt: createdAt,
+      joinCode: json['joinCode'] as String? ?? '',
+      businessId: (json['businessId'] as String? ??
+              json['companyCode'] as String? ??
+              '')
+          .toUpperCase(),
     );
   }
 
@@ -52,6 +65,8 @@ class Company {
       'name': name,
       'ownerUserId': ownerUserId,
       'createdAt': createdAt.toIso8601String(),
+      'joinCode': joinCode,
+      'businessId': businessId,
     };
   }
 }
