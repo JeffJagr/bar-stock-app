@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../data/firebase_remote_repository.dart';
@@ -34,6 +36,9 @@ class AppNotifier extends ChangeNotifier {
   String? _currentUserId;
   CloudUserRole? _cloudUserRole;
   CompanyMember? _currentCompanyMember;
+  StreamSubscription<List<InventoryItem>>? _inventorySub;
+  StreamSubscription<List<OrderItem>>? _ordersSub;
+  StreamSubscription<List<HistoryEntry>>? _historySub;
 
   AppState get state => _state;
   AppController get controller => _controller;
@@ -46,6 +51,73 @@ class AppNotifier extends ChangeNotifier {
     _state = newState;
     _controller.state = newState;
     notifyListeners();
+  }
+
+  /// Centralized logout: clears session state and notifies listeners.
+  void logoutAll() {
+    _currentUserId = null;
+    _cloudUserRole = null;
+    _currentCompanyMember = null;
+    _inventorySub?.cancel();
+    _ordersSub?.cancel();
+    _historySub?.cancel();
+    _state = AppState.initial();
+    _controller.state = _state;
+    notifyListeners();
+  }
+
+  Future<void> startLiveStreams(String companyId) async {
+    await _cancelStreams();
+    _inventorySub = _remoteRepository.streamInventory(companyId).listen(
+      (items) {
+        _state.inventory = items;
+        notifyListeners();
+      },
+      onError: (err, stack) => ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'Inventory stream error',
+      ),
+    );
+    _ordersSub = _remoteRepository.streamOrders(companyId).listen(
+      (orders) {
+        _state.orders = orders;
+        notifyListeners();
+      },
+      onError: (err, stack) => ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'Orders stream error',
+      ),
+    );
+    _historySub = _remoteRepository.streamHistory(companyId).listen(
+      (history) {
+        _state.history = history;
+        notifyListeners();
+      },
+      onError: (err, stack) => ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'History stream error',
+      ),
+    );
+  }
+
+  Future<void> stopLiveStreams() async {
+    await _cancelStreams();
+  }
+
+  Stream<List<OrderItem>> orderHistoryStream(String companyId) {
+    return _remoteRepository.streamOrderHistory(companyId);
+  }
+
+  Future<void> _cancelStreams() async {
+    await _inventorySub?.cancel();
+    await _ordersSub?.cancel();
+    await _historySub?.cancel();
+    _inventorySub = null;
+    _ordersSub = null;
+    _historySub = null;
   }
 
   void setCurrentUserId(String? userId) {
@@ -178,15 +250,7 @@ class AppNotifier extends ChangeNotifier {
   }
 
   void changeFillPercent(String productId, double percent) {
-    _controller.changeFillPercent(productId, percent);
-    _syncInventoryItem(productId);
-    _recordHistory(
-      'Adjusted bar level for $productId',
-      HistoryKind.bar,
-      HistoryActionType.update,
-      meta: {'productId': productId, 'percent': percent},
-    );
-    notifyListeners();
+    commitBarLevelChange(productId, percent);
   }
 
   void changeMaxQty(String productId, int maxQty) {
@@ -253,6 +317,38 @@ class AppNotifier extends ChangeNotifier {
       HistoryKind.order,
       HistoryActionType.create,
       meta: {'productId': productId},
+    );
+    notifyListeners();
+  }
+
+  /// Commit a bar level change with history and remote sync.
+  void commitBarLevelChange(String productId, double percent) {
+    final clamped = percent.clamp(0.0, 100.0);
+    final item = _inventoryByProduct(productId);
+    final companyId = _state.activeCompanyId;
+    if (item == null || companyId == null) return;
+
+    final oldPercent = item.maxQty > 0
+        ? ((item.approxQty / item.maxQty) * 100).clamp(0, 100)
+        : 0.0;
+    if (clamped.toStringAsFixed(1) == oldPercent.toStringAsFixed(1)) {
+      return; // no meaningful change, avoid history spam
+    }
+
+    _controller.changeFillPercent(productId, clamped);
+    _syncInventoryItem(productId);
+    _recordHistory(
+      'Adjusted bar level',
+      HistoryKind.bar,
+      HistoryActionType.update,
+      meta: {
+        'productId': productId,
+        'productName': item.product.name,
+        'oldPercent': oldPercent,
+        'newPercent': clamped,
+        'actorId': _currentCompanyMember?.memberId ?? _currentUserId,
+        'actorName': _currentCompanyMember?.displayName ?? 'System',
+      },
     );
     notifyListeners();
   }
@@ -538,7 +634,7 @@ class AppNotifier extends ChangeNotifier {
     if (companyId == null) return;
     final item = _inventoryByProduct(productId);
     if (item == null) return;
-    _remoteRepository.upsertInventoryItem(companyId, item);
+    _remoteRepository.saveInventoryItem(companyId, item);
   }
 
   void _syncOrder(String productId) {
@@ -546,7 +642,7 @@ class AppNotifier extends ChangeNotifier {
     if (companyId == null) return;
     final order = _orderByProduct(productId);
     if (order == null) return;
-    _remoteRepository.upsertOrder(companyId, order);
+    _remoteRepository.createOrder(companyId, order);
   }
 
   void _syncGroups() {
@@ -587,7 +683,7 @@ class AppNotifier extends ChangeNotifier {
     if (_state.history.length > 500) {
       _state.history.removeAt(0);
     }
-    _remoteRepository.addHistoryEntry(companyId, entry);
+    _remoteRepository.appendHistoryEntry(companyId, entry);
   }
 
   static const Set<HistoryKind> _undoableKinds = {

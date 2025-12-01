@@ -34,4 +34,10 @@ class UserProfileRepository {
     }
     return null;
   }
+
+  /// Removes the user profile document. Does not affect authentication
+  /// credentials; the caller is responsible for auth user deletion/sign-out.
+  Future<void> deleteUser(String userId) {
+    return _doc(userId).delete();
+  }
 }

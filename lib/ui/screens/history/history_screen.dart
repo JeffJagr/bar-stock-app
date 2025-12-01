@@ -336,6 +336,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                 '${entry.actorName} - ${entry.actionType.name.toUpperCase()} - ${_formatTimestamp(entry.timestamp)}',
                                 style: const TextStyle(fontSize: 11),
                               ),
+                              if (entry.meta != null &&
+                                  entry.meta!['productName'] != null &&
+                                  entry.meta!['oldPercent'] != null &&
+                                  entry.meta!['newPercent'] != null)
+                                Text(
+                                  '${entry.meta!['productName']}: '
+                                  '${(entry.meta!['oldPercent'] as num).toStringAsFixed(1)}% → '
+                                  '${(entry.meta!['newPercent'] as num).toStringAsFixed(1)}%',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
                             ],
                           ),
                           trailing: canUndo

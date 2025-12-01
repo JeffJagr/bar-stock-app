@@ -57,8 +57,176 @@ class FirebaseRemoteRepository implements RemoteRepository {
       fetchFullStateForCompany(ownerId);
 
   @override
+  Stream<List<InventoryItem>> streamInventory(String companyId) {
+    return _service.inventoryCollection(companyId).snapshots().map(
+      (snapshot) {
+        return snapshot.docs
+            .map(
+              (doc) => _decodeInventory(
+                doc,
+                companyId: companyId,
+              ),
+            )
+            .toList();
+      },
+    );
+  }
+
+  @override
+  Stream<List<OrderItem>> streamOrders(String companyId) {
+    return _service.ordersCollection(companyId).snapshots().map(
+      (snapshot) {
+        return snapshot.docs
+            .map(
+              (doc) => _decodeOrder(
+                doc,
+                companyId: companyId,
+              ),
+            )
+            .toList();
+      },
+    );
+  }
+
+  @override
+  Stream<List<HistoryEntry>> streamHistory(String companyId) {
+    return _service.historyCollection(companyId).snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = _normalizeTimestampField(
+          Map<String, dynamic>.from(doc.data()),
+          'timestamp',
+        );
+        data['companyId'] = data['companyId'] ?? companyId;
+        return HistoryEntry.fromJson(data);
+      }).toList();
+    });
+  }
+
+  @override
+  Stream<List<OrderItem>> streamOrderHistory(String companyId) {
+    return _service.ordersCollection(companyId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+      (snapshot) {
+        return snapshot.docs
+            .map(
+              (doc) => _decodeOrder(
+                doc,
+                companyId: companyId,
+              ),
+            )
+            .toList();
+      },
+    );
+  }
+
+  @override
   Future<void> syncToCloud(String ownerId, AppState state) =>
       _unsupportedWrite('syncToCloud');
+
+  @override
+  Future<void> saveInventoryItem(String companyId, InventoryItem item) async {
+    try {
+      final payload = {
+        ...item.toJson(),
+        'companyId': item.companyId ?? companyId,
+        'productId': item.product.id,
+      };
+      await _service
+          .inventoryCollection(companyId)
+          .doc(item.product.id)
+          .set(payload, SetOptions(merge: true));
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'saveInventoryItem failed');
+    }
+  }
+
+  @override
+  Future<void> saveInventoryBatch(
+    String companyId,
+    List<InventoryItem> items,
+  ) async {
+    if (items.isEmpty) return;
+    try {
+      final batch = _service.firestore.batch();
+      for (final item in items) {
+        final payload = {
+          ...item.toJson(),
+          'companyId': item.companyId ?? companyId,
+          'productId': item.product.id,
+        };
+        batch.set(
+          _service.inventoryCollection(companyId).doc(item.product.id),
+          payload,
+          SetOptions(merge: true),
+        );
+      }
+      await batch.commit();
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'saveInventoryBatch failed',
+      );
+    }
+  }
+
+  @override
+  Future<String> createOrder(String companyId, OrderItem order) async {
+    try {
+      final payload = {
+        ...order.toJson(),
+        'companyId': order.companyId ?? companyId,
+        'productId': order.product.id,
+      };
+      await _service
+          .ordersCollection(companyId)
+          .doc(order.product.id)
+          .set(payload, SetOptions(merge: true));
+      return order.product.id;
+    } catch (err, stack) {
+      ErrorReporter.logException(err, stack, reason: 'createOrder failed');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> updateOrderStatus(
+    String companyId,
+    String orderId,
+    OrderStatus status,
+  ) async {
+    try {
+      await _service.ordersCollection(companyId).doc(orderId).set(
+            {'status': status.name, 'companyId': companyId},
+            SetOptions(merge: true),
+          );
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'updateOrderStatus failed',
+      );
+    }
+  }
+
+  @override
+  Future<void> appendHistoryEntry(String companyId, HistoryEntry entry) async {
+    try {
+      final payload = {
+        ...entry.toJson(),
+        'companyId': entry.companyId ?? companyId,
+      };
+      await _service.historyCollection(companyId).add(payload);
+    } catch (err, stack) {
+      ErrorReporter.logException(
+        err,
+        stack,
+        reason: 'appendHistoryEntry failed',
+      );
+    }
+  }
 
   @override
   Future<List<Product>> listProducts(String ownerId) async {
@@ -311,37 +479,6 @@ class FirebaseRemoteRepository implements RemoteRepository {
   }
 
   @override
-  Future<String> createOrder(String ownerId, OrderItem order) async {
-    try {
-      await upsertOrder(ownerId, order);
-      return order.product.id;
-    } catch (err, stack) {
-      ErrorReporter.logException(err, stack, reason: 'createOrder failed');
-      rethrow;
-    }
-  }
-
-  @override
-  Future<void> updateOrderStatus(
-    String ownerId,
-    String orderId,
-    OrderStatus status,
-  ) async {
-    try {
-      await _service.ordersCollection(ownerId).doc(orderId).set(
-            {'status': status.name},
-            SetOptions(merge: true),
-          );
-    } catch (err, stack) {
-      ErrorReporter.logException(
-        err,
-        stack,
-        reason: 'updateOrderStatus failed',
-      );
-    }
-  }
-
-  @override
   Future<void> deleteOrder(String ownerId, String orderId) async {
     try {
       await _service.ordersCollection(ownerId).doc(orderId).delete();
@@ -450,6 +587,7 @@ class FirebaseRemoteRepository implements RemoteRepository {
       productCache: productCache,
     );
     data['companyId'] = data['companyId'] ?? companyId;
+    data['createdAt'] = data['createdAt'] ?? DateTime.now().toIso8601String();
     return OrderItem.fromJson(data);
   }
 

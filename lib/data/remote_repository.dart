@@ -48,4 +48,15 @@ abstract class RemoteRepository {
 
   // Staff
   Future<List<StaffMember>> listStaff(String ownerId);
+
+  // Live streams
+  Stream<List<InventoryItem>> streamInventory(String ownerId);
+  Stream<List<OrderItem>> streamOrders(String ownerId);
+  Stream<List<HistoryEntry>> streamHistory(String ownerId);
+  Stream<List<OrderItem>> streamOrderHistory(String ownerId);
+
+  // Writes
+  Future<void> saveInventoryItem(String ownerId, InventoryItem item);
+  Future<void> saveInventoryBatch(String ownerId, List<InventoryItem> items);
+  Future<void> appendHistoryEntry(String ownerId, HistoryEntry entry);
 }

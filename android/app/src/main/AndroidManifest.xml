@@ -3,6 +3,7 @@
         android:label="bar_stockapp_codexai"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- TODO: replace mipmap/ic_launcher assets with final Android-specific icon (no iOS or Android UI chrome in art) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

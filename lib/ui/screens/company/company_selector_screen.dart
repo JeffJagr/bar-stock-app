@@ -12,6 +12,7 @@ class CompanySelectorScreen extends StatefulWidget {
   final bool allowCreate;
   final Widget? emptyPlaceholder;
   final CloudUserRole? role;
+  final bool autoSelectSingle;
 
   const CompanySelectorScreen({
     super.key,
@@ -21,6 +22,7 @@ class CompanySelectorScreen extends StatefulWidget {
     this.allowCreate = true,
     this.emptyPlaceholder,
     this.role,
+    this.autoSelectSingle = true,
   });
 
   @override
@@ -32,6 +34,7 @@ class _CompanySelectorScreenState extends State<CompanySelectorScreen> {
   bool _creatingCompany = false;
   final TextEditingController _companyNameController = TextEditingController();
   String? _error;
+  String? _autoSelectedCompanyId;
 
   @override
   void dispose() {
@@ -47,18 +50,20 @@ class _CompanySelectorScreenState extends State<CompanySelectorScreen> {
     }
     setState(() => _creatingCompany = true);
     try {
-      final company = await _repository.createCompany(
+      final companyId = await _repository.createCompany(
         name: name,
         ownerUserId: widget.currentUserId,
-        ownerEmail: widget.currentUserEmail,
       );
+      final company = await _repository.fetchCompany(companyId);
       if (!mounted) return;
       _companyNameController.clear();
       setState(() {
         _creatingCompany = false;
         _error = null;
       });
-      widget.onCompanySelected(company.companyId, company);
+      if (company != null) {
+        widget.onCompanySelected(company.companyId, company);
+      }
     } catch (err) {
       setState(() {
         _creatingCompany = false;
@@ -70,9 +75,21 @@ class _CompanySelectorScreenState extends State<CompanySelectorScreen> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Company>>(
-      stream: _repository.watchUserCompanies(widget.currentUserId),
+      stream: _repository.streamUserCompanies(widget.currentUserId),
       builder: (context, snapshot) {
         final companies = snapshot.data ?? [];
+        if (widget.autoSelectSingle &&
+            companies.length == 1 &&
+            _autoSelectedCompanyId != companies.first.companyId) {
+          _autoSelectedCompanyId = companies.first.companyId;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            widget.onCompanySelected(
+              companies.first.companyId,
+              companies.first,
+            );
+          });
+        }
         final isLoading =
             snapshot.connectionState == ConnectionState.waiting &&
                 companies.isEmpty;

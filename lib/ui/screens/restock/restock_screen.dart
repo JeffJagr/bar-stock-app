@@ -107,7 +107,7 @@ class _RestockScreenState extends State<RestockScreen> {
               final controller = _controllerFor(id);
               final errorText = _errorByProduct[id];
 
-              final maxInt = item.approxNeed.ceil().clamp(0, 1000000);
+              final maxInt = _suggestedAmount(item);
 
               return Card(
                 margin:
@@ -149,7 +149,7 @@ class _RestockScreenState extends State<RestockScreen> {
                                   style: const TextStyle(fontSize: 12),
                                 ),
                                 Text(
-                                  'Need for full refill: ${item.approxNeed.toStringAsFixed(1)}',
+                                  'Suggested: ${_suggestedAmount(item)} to reach par',
                                   style: const TextStyle(fontSize: 12),
                                 ),
                               ],
@@ -203,7 +203,7 @@ class _RestockScreenState extends State<RestockScreen> {
                                 _errorByProduct[id] = null;
                               });
                             },
-                            child: const Text('Full refill'),
+                            child: const Text('Use suggestion'),
                           ),
                         ],
                       ),
@@ -383,7 +383,7 @@ class _RestockScreenState extends State<RestockScreen> {
     }
     setState(() {
       for (final item in items) {
-        final suggested = item.approxNeed.ceil().clamp(0, 1000000);
+        final suggested = _suggestedAmount(item);
         _controllerFor(item.product.id).text = suggested.toString();
         _errorByProduct[item.product.id] = null;
       }
@@ -421,6 +421,10 @@ class _RestockScreenState extends State<RestockScreen> {
 
     _errorByProduct[id] = null;
     return value;
+  }
+
+  int _suggestedAmount(RestockItem item) {
+    return item.approxNeed.ceil().clamp(0, 9999);
   }
 
   Map<String, double>? _collectAmounts(

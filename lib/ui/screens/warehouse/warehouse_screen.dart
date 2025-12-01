@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/app_logic.dart';
 import '../../../core/app_notifier.dart';
 import '../../../core/constants.dart';
+import '../../../core/constants/stock_thresholds.dart';
 import '../../../core/models/inventory_item.dart';
 import '../../../core/models/order_item.dart' as oi;
 import '../../../core/print_service.dart';
@@ -430,7 +431,7 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
                   Expanded(
                     child: Text(
                       'Track low alerts '
-                      '(below ${(AppConstants.warehouseLowThreshold * 100).toStringAsFixed(0)}%)',
+                      '(below ${(StockThresholds.warehouseLow * 100).toStringAsFixed(0)}%)',
                       style: const TextStyle(fontSize: 11),
                     ),
                   ),
@@ -622,9 +623,18 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
                       ? newGroupController.text.trim()
                       : (selectedGroup ?? '');
                   final prodName = nameController.text.trim();
-                  int maxQty = int.tryParse(maxController.text.trim()) ?? 0;
-                  final whQty =
-                      int.tryParse(warehouseController.text.trim()) ?? 0;
+                  final maxRaw = int.tryParse(maxController.text.trim());
+                  final whRaw = int.tryParse(warehouseController.text.trim());
+                  if (maxRaw == null || maxRaw < 0 || whRaw == null || whRaw < 0) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text('Enter non-negative numbers for quantities'),
+                      ),
+                    );
+                    return;
+                  }
+                  int maxQty = maxRaw;
+                  final whQty = whRaw.clamp(0, 1000000);
 
                   if (!addToBar) {
                     maxQty = 0;
@@ -677,11 +687,18 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
   void _commitWarehouseQty(AppNotifier notifier, InventoryItem item) {
     final controller = _warehouseControllerFor(item);
     final parsed = int.tryParse(controller.text.trim());
-    if (parsed == null) {
+    if (parsed == null || parsed < 0) {
       controller.text = item.warehouseQty.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid non-negative quantity')),
+      );
       return;
     }
-    notifier.changeWarehouseQty(item.product.id, parsed);
+    final clamped = parsed.clamp(0, 1000000);
+    if (clamped != parsed) {
+      controller.text = clamped.toString();
+    }
+    notifier.changeWarehouseQty(item.product.id, clamped);
   }
 
   void _bumpWarehouseQty(

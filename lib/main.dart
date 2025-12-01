@@ -21,13 +21,14 @@ import 'core/print_service.dart';
 import 'core/remote/backend_config.dart';
 import 'core/remote/remote_repository.dart';
 import 'core/remote/remote_sync_service.dart';
+import 'core/session_manager.dart';
 import 'core/undo_manager.dart';
 import 'core/web_refresh.dart';
 import 'data/company_repository.dart';
 import 'data/staff_repository.dart';
 import 'data/user_profile_repository.dart';
 import 'models/cloud_user_role.dart';
-import 'ui/screens/auth/auth_role_landing_screen.dart';
+import 'ui/screens/auth/auth_landing_screen.dart';
 import 'ui/screens/auth/firebase_email_auth_screen.dart';
 import 'ui/screens/auth/staff_login_screen.dart';
 import 'ui/screens/company/company_selector_screen.dart';
@@ -36,16 +37,20 @@ import 'ui/screens/company/join_company_placeholder.dart';
 import 'ui/screens/company/join_company_code_dialog.dart';
 import 'ui/screens/bar/bar_screen.dart';
 import 'ui/screens/bar/low_screen.dart';
+import 'ui/screens/legal/legal_screen.dart';
 import 'ui/screens/history/history_screen.dart';
 import 'ui/screens/orders/order_screen.dart';
 import 'ui/screens/restock/restock_screen.dart';
 import 'ui/screens/search/global_search_screen.dart';
+import 'ui/screens/settings/account_deletion_screen.dart';
 import 'ui/screens/staff/staff_management_screen.dart';
 import 'ui/screens/statistics/statistics_screen.dart';
 import 'ui/screens/warehouse/warehouse_screen.dart';
 import 'ui/widgets/loading_overlay.dart';
 import 'ui/widgets/print_preview_dialog.dart';
+import 'ui/widgets/session_observer.dart';
 import 'firebase_options.dart';
+import 'models/staff_member.dart';
 
 Future<void> main() async {
   await runZonedGuarded<Future<void>>(() async {
@@ -85,6 +90,8 @@ enum _AppMenuAction { search, statistics }
 enum _AuthFlow { landing, ownerEmail, staffPin }
 
 class _SmartBarAppState extends State<SmartBarApp> {
+  static const Color _brandPrimary = Color(0xFF455A64);
+  static const Color _brandPrimaryDark = Color(0xFF0D1B2A);
   bool _loading = true;
   bool _syncingCloud = false;
   int _selectedIndex = 0;
@@ -106,6 +113,7 @@ class _SmartBarAppState extends State<SmartBarApp> {
   late final RemoteSyncService _remoteSyncService;
   late final AppNotifier _appNotifier;
   late final bool _firebaseAvailable;
+  late final SessionManager _sessionManager;
   CloudUserRole? _selectedRoleChoice;
 
   AppState get _state => _appNotifier.state;
@@ -113,6 +121,14 @@ class _SmartBarAppState extends State<SmartBarApp> {
   @override
   void initState() {
     super.initState();
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: _brandPrimaryDark,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: _brandPrimaryDark,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+    );
     _firebaseAvailable = widget.firebaseReady && AppConfig.firebaseEnabled;
     if (_firebaseAvailable) {
       _firebaseAuth = FirebaseAuth.instance;
@@ -132,6 +148,12 @@ class _SmartBarAppState extends State<SmartBarApp> {
       persistCallback: _persistToRepositories,
     );
     _appNotifier.addListener(_handleAppStateChanged);
+    _sessionManager = SessionManager(
+      onTimeout: _handleInactivityTimeout,
+      ownerTimeout: const Duration(minutes: 30),
+      staffTimeout: const Duration(minutes: 20),
+      warningDuration: const Duration(seconds: 10),
+    );
     AppStorage.setActiveBar(_barId);
     if (!_firebaseAvailable) {
       unawaited(_loadInitialForUser(_barId));
@@ -231,6 +253,9 @@ class _SmartBarAppState extends State<SmartBarApp> {
     if (_firebaseAvailable) {
       _remoteSyncService.start(_barId);
     }
+    if (_activeCompany != null || _activeStaff != null) {
+      _sessionManager.resetTimer();
+    }
   }
 
   void _handleAppStateChanged() {
@@ -254,10 +279,13 @@ class _SmartBarAppState extends State<SmartBarApp> {
     _appNotifier.setCurrentStaffMember(ownerMember);
     await _remoteSyncService.dispose();
     await _loadInitialForUser(companyId);
+    _sessionManager.startForOwner();
+    await _appNotifier.startLiveStreams(companyId);
   }
 
   Future<void> _clearCompanySelection() async {
     await _remoteSyncService.dispose();
+    await _appNotifier.stopLiveStreams();
     _barId = BackendConfig.defaultBarId;
     AppStorage.setActiveBar(_barId);
     _appNotifier.setActiveCompanyId(null);
@@ -314,6 +342,8 @@ class _SmartBarAppState extends State<SmartBarApp> {
           companyId: companyId,
           repository: _companyRepository,
           canRegenerate: canRegenerate,
+          canDeleteAccount: _isOwner,
+          onDeleteAccount: () => _openAccountDeletion(context),
         ),
       ),
     );
@@ -339,6 +369,8 @@ class _SmartBarAppState extends State<SmartBarApp> {
     _appNotifier.removeListener(_handleAppStateChanged);
     _authSubscription?.cancel();
     _remoteSyncService.dispose();
+    _appNotifier.stopLiveStreams();
+    _sessionManager.cancelTimer();
     _appNotifier.dispose();
     super.dispose();
   }
@@ -442,38 +474,44 @@ class _SmartBarAppState extends State<SmartBarApp> {
     AppLogic.setCurrentStaff(null);
   }
 
-  void _logoutStaff(BuildContext context) {
+  Future<void> _logoutAll() async {
     setState(() {
-      _lastBusinessId = _activeCompany?.businessId ?? _lastBusinessId;
-      _activeStaff = null;
-      _activeCompany = null;
-      _selectedIndex = 0;
-      _authFlow = _AuthFlow.landing;
-      _selectedRoleChoice = null;
+      _loading = true;
     });
-    _appNotifier.setCurrentStaffMember(null);
-    _appNotifier.setActiveCompanyId(null);
-    _appNotifier.setCloudUserRole(null);
-    _appNotifier.setCurrentUserId(null);
+    await _remoteSyncService.dispose();
+    await _appNotifier.stopLiveStreams();
+    _appNotifier.logoutAll();
     AppLogic.setCurrentStaff(null);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Staff logged out')),
-    );
+    _firebaseUser = null;
+    _activeCompany = null;
+    _activeStaff = null;
+    _selectedIndex = 0;
+    _authFlow = _AuthFlow.landing;
+    _selectedRoleChoice = null;
+    _lastBusinessId = null;
+    _sessionManager.cancelTimer();
+    AppStorage.setActiveBar(BackendConfig.defaultBarId);
     if (_firebaseAvailable) {
-      _firebaseAuth?.signOut();
+      try {
+        await _firebaseAuth?.signOut();
+      } catch (err, stack) {
+        ErrorReporter.logException(
+          err,
+          stack,
+          reason: 'Logout failed',
+        );
+      }
     }
-  }
-
-  Future<void> _logoutAll(BuildContext context) async {
-    _logoutStaff(context);
-    setState(() {
-      _selectedRoleChoice = null;
-      _authFlow = _AuthFlow.landing;
-    });
-    _appNotifier.setCloudUserRole(null);
-    _appNotifier.setCurrentUserId(null);
-    if (_firebaseAvailable) {
-      await _firebaseAuth?.signOut();
+    if (mounted) {
+      setState(() {
+        _loading = false;
+      });
+      final messenger = ScaffoldMessenger.maybeOf(
+        _navigatorKey.currentContext ?? context,
+      );
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Logged out')),
+      );
     }
   }
 
@@ -487,6 +525,31 @@ class _SmartBarAppState extends State<SmartBarApp> {
     Navigator.of(
       ctx,
     ).push(MaterialPageRoute(builder: (_) => const HistoryScreen()));
+  }
+
+  void _openLegal(BuildContext ctx) {
+    Navigator.of(
+      ctx,
+    ).push(MaterialPageRoute(builder: (_) => const LegalScreen()));
+  }
+
+  void _openAccountDeletion(BuildContext ctx) {
+    if (!_isOwner || _activeCompany == null || _firebaseUser == null) {
+      return;
+    }
+    Navigator.of(
+      ctx,
+    ).push(
+      MaterialPageRoute(
+        builder: (_) => AccountDeletionScreen(
+          company: _activeCompany!,
+          userId: _firebaseUser!.uid,
+          onDeleted: () async {
+            await _logoutAll();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _handleStaffLogin(
@@ -511,7 +574,7 @@ class _SmartBarAppState extends State<SmartBarApp> {
       }
     }
     final company =
-        await _companyRepository.fetchCompanyByBusinessId(businessId);
+        await _companyRepository.getCompanyByBusinessId(businessId);
     if (company == null) {
       setState(() => _loading = false);
       messenger?.showSnackBar(
@@ -519,17 +582,18 @@ class _SmartBarAppState extends State<SmartBarApp> {
       );
       return;
     }
-    final member = await _staffRepository.findByPin(
+    final staffMember = await _staffRepository.getStaffByPin(
       companyId: company.companyId,
       pin: pin,
     );
-    if (member == null) {
+    if (staffMember == null) {
       setState(() => _loading = false);
       messenger?.showSnackBar(
         const SnackBar(content: Text('Invalid PIN')),
       );
       return;
     }
+    final member = _mapStaffToCompanyMember(staffMember);
     if (member.disabled) {
       setState(() => _loading = false);
       messenger?.showSnackBar(
@@ -548,6 +612,8 @@ class _SmartBarAppState extends State<SmartBarApp> {
     _appNotifier.setCurrentStaffMember(member);
     await _remoteSyncService.dispose();
     await _loadInitialForUser(company.companyId);
+    _sessionManager.startForStaff();
+    await _appNotifier.startLiveStreams(company.companyId);
     setState(() => _loading = false);
   }
 
@@ -638,6 +704,97 @@ class _SmartBarAppState extends State<SmartBarApp> {
     );
   }
 
+  CompanyMember _mapStaffToCompanyMember(CompanyStaffMember staff) {
+    return CompanyMember(
+      memberId: staff.staffId,
+      companyId: staff.companyId,
+      displayName: staff.displayName,
+      role: staff.role,
+      pinHash: staff.pinHash,
+      pinSalt: staff.companyId,
+      createdAt: staff.createdAt,
+      updatedAt: staff.updatedAt,
+      disabled: !staff.isActive,
+    );
+  }
+
+  Future<void> _handleInactivityTimeout() async {
+    final ctx = _navigatorKey.currentContext;
+    if (ctx == null || !mounted) {
+      await _logoutAll();
+      return;
+    }
+    final countdown = ValueNotifier<int>(_sessionManager.warningDuration.inSeconds);
+    Timer? ticker;
+    Timer? autoLogout;
+    bool acknowledged = false;
+
+    void cleanup() {
+      ticker?.cancel();
+      autoLogout?.cancel();
+      countdown.dispose();
+    }
+
+    ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final next = countdown.value - 1;
+      if (next >= 0) {
+        countdown.value = next;
+      }
+    });
+
+    autoLogout = Timer(_sessionManager.warningDuration, () async {
+      if (acknowledged) return;
+      acknowledged = true;
+      Navigator.of(ctx, rootNavigator: true).pop();
+      await _logoutAll();
+    });
+
+    await showDialog<void>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            title: const Text('Inactivity warning'),
+            content: ValueListenableBuilder<int>(
+              valueListenable: countdown,
+              builder: (_, seconds, child) {
+                return Text(
+                  'You will be logged out due to inactivity in $seconds seconds.',
+                );
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  if (acknowledged) return;
+                  acknowledged = true;
+                  Navigator.of(dialogCtx).pop();
+                  cleanup();
+                  _sessionManager.resetTimer();
+                },
+                child: const Text('Stay signed in'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  if (acknowledged) return;
+                  acknowledged = true;
+                  Navigator.of(dialogCtx).pop();
+                  cleanup();
+                  await _logoutAll();
+                },
+                child: const Text('Log out now'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    cleanup();
+  }
+
   void _onCloudDownload(BuildContext ctx) {
     final messenger = ScaffoldMessenger.of(ctx);
     if (!_firebaseAvailable ||
@@ -686,6 +843,29 @@ class _SmartBarAppState extends State<SmartBarApp> {
     });
   }
 
+  Widget _lowBadge(int? count, {Color color = Colors.red}) {
+    final display = count != null ? count.clamp(0, 99) : null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
+      child: display == null
+          ? null
+          : Text(
+              display.toString(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+    );
+  }
+
   Widget _buildBody(BuildContext context) {
     if (_authFlow == _AuthFlow.staffPin && _activeStaff == null) {
       return StaffLoginScreen(
@@ -700,23 +880,26 @@ class _SmartBarAppState extends State<SmartBarApp> {
       );
     }
 
-    if (_firebaseAvailable &&
-        _firebaseAuth != null &&
-        _firebaseUser == null &&
-        _authFlow != _AuthFlow.staffPin) {
+      if (_firebaseAvailable &&
+          _firebaseAuth != null &&
+          _firebaseUser == null &&
+          _authFlow != _AuthFlow.staffPin) {
       if (_selectedRoleChoice == null || _authFlow == _AuthFlow.landing) {
-        return AuthRoleLandingScreen(
-          onRoleSelected: (role) {
+        return AuthLandingScreen(
+          onOwnerLogin: () {
             setState(() {
-              _selectedRoleChoice = role;
-              _authFlow = role == CloudUserRole.owner
-                  ? _AuthFlow.ownerEmail
-                  : _AuthFlow.staffPin;
-              if (role == CloudUserRole.owner) {
-                _appNotifier.setCloudUserRole(role);
-              }
+              _selectedRoleChoice = CloudUserRole.owner;
+              _authFlow = _AuthFlow.ownerEmail;
+              _appNotifier.setCloudUserRole(CloudUserRole.owner);
             });
           },
+          onStaffLogin: () {
+            setState(() {
+              _selectedRoleChoice = CloudUserRole.worker;
+              _authFlow = _AuthFlow.staffPin;
+            });
+          },
+          onLegal: () => _openLegal(context),
         );
       }
       return FirebaseEmailAuthScreen(
@@ -748,7 +931,7 @@ class _SmartBarAppState extends State<SmartBarApp> {
             ? null
             : JoinCompanyPlaceholder(
                 onRefresh: () => setState(() {}),
-                onSignOut: () => _logoutAll(context),
+                onSignOut: () => _logoutAll(),
                 onEnterCode: () => _showJoinCompanyDialog(context),
               ),
         role: cloudRole,
@@ -806,118 +989,131 @@ class _SmartBarAppState extends State<SmartBarApp> {
   }
 
   List<Widget> _buildActions(BuildContext ctx, bool hasOpenOrders) {
-    if (_activeStaff == null) return const [];
+    final actions = <Widget>[];
 
-    final companyLabel =
-        _activeCompany?.name ?? _appNotifier.state.activeCompanyId;
+    if (_activeStaff != null) {
+      final companyLabel =
+          _activeCompany?.name ?? _appNotifier.state.activeCompanyId;
 
-    return [
-      if (companyLabel != null)
+      actions.addAll([
+        if (companyLabel != null)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: Text(
+                companyLabel,
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ),
+          ),
         Center(
           child: Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: Text(
-              companyLabel,
-              style: const TextStyle(fontWeight: FontWeight.w500),
+              _activeStaff!.displayName,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
         ),
-      Center(
-        child: Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: Text(
-            _activeStaff!.displayName,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+        PopupMenuButton<_AppMenuAction>(
+          tooltip: 'Search & statistics',
+          icon: const Icon(Icons.search),
+          onSelected: (action) {
+            switch (action) {
+              case _AppMenuAction.search:
+                _openSearch(ctx);
+                break;
+              case _AppMenuAction.statistics:
+                _openStatistics(ctx);
+                break;
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: _AppMenuAction.search,
+              child: Text('Global search'),
+            ),
+            PopupMenuItem(
+              value: _AppMenuAction.statistics,
+              enabled: _hasManagementAccess,
+              child: const Text('Statistics & analytics'),
+            ),
+          ],
+        ),
+        if (supportsWebRefresh)
+          IconButton(
+            tooltip: 'Refresh web app',
+            icon: const Icon(Icons.refresh),
+            onPressed: refreshWebApp,
           ),
-        ),
-      ),
-      PopupMenuButton<_AppMenuAction>(
-        tooltip: 'Search & statistics',
-        icon: const Icon(Icons.search),
-        onSelected: (action) {
-          switch (action) {
-            case _AppMenuAction.search:
-              _openSearch(ctx);
-              break;
-            case _AppMenuAction.statistics:
-              _openStatistics(ctx);
-              break;
-          }
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem(
-            value: _AppMenuAction.search,
-            child: Text('Global search'),
+        if (_isOwner || _isManager)
+          IconButton(
+            tooltip: 'Company settings',
+            icon: const Icon(Icons.admin_panel_settings),
+            onPressed: () => _openCompanySettings(ctx),
           ),
-          PopupMenuItem(
-            value: _AppMenuAction.statistics,
-            enabled: _hasManagementAccess,
-            child: const Text('Statistics & analytics'),
+        if (_firebaseAvailable && _firebaseUser != null)
+          IconButton(
+            tooltip: 'Switch company',
+            icon: const Icon(Icons.apartment),
+            onPressed: _isOwner ? () => _promptCompanySwitch(ctx) : null,
           ),
-        ],
-      ),
-      if (supportsWebRefresh)
         IconButton(
-          tooltip: 'Refresh web app',
-          icon: const Icon(Icons.refresh),
-          onPressed: refreshWebApp,
+          tooltip: 'Download cloud data',
+          icon: const Icon(Icons.cloud_download),
+          onPressed: () => _onCloudDownload(ctx),
         ),
-      if (_isOwner || _isManager)
         IconButton(
-          tooltip: 'Company settings',
-          icon: const Icon(Icons.admin_panel_settings),
-          onPressed: () => _openCompanySettings(ctx),
+          tooltip: 'Sync from cloud',
+          icon: const Icon(Icons.sync),
+          onPressed: () => _onManualSync(ctx),
         ),
-      if (_firebaseAvailable && _firebaseUser != null)
         IconButton(
-          tooltip: 'Switch company',
-          icon: const Icon(Icons.apartment),
-          onPressed: _isOwner ? () => _promptCompanySwitch(ctx) : null,
+          tooltip: 'Print',
+          icon: const Icon(Icons.print),
+          onPressed: () => _onPrint(ctx),
         ),
-      IconButton(
-        tooltip: 'Download cloud data',
-        icon: const Icon(Icons.cloud_download),
-        onPressed: () => _onCloudDownload(ctx),
-      ),
-      IconButton(
-        tooltip: 'Sync from cloud',
-        icon: const Icon(Icons.sync),
-        onPressed: () => _onManualSync(ctx),
-      ),
-      IconButton(
-        tooltip: 'Print',
-        icon: const Icon(Icons.print),
-        onPressed: () => _onPrint(ctx),
-      ),
-      IconButton(
-        tooltip: 'Undo last action',
-        icon: const Icon(Icons.undo),
-        onPressed: !_appNotifier.canUndoForRole(null)
-            ? null
-            : () => _onUndo(ctx),
-      ),
-      IconButton(
-        tooltip: 'History',
-        icon: const Icon(Icons.history),
-        onPressed: () => _openHistory(ctx),
-      ),
-      if (_canAccessStaffManagement)
         IconButton(
-          tooltip: 'Staff accounts',
-          icon: const Icon(Icons.group),
-          onPressed: () => _openStaffManagement(ctx),
+          tooltip: 'Undo last action',
+          icon: const Icon(Icons.undo),
+          onPressed: !_appNotifier.canUndoForRole(null)
+              ? null
+              : () => _onUndo(ctx),
         ),
+        IconButton(
+          tooltip: 'History',
+          icon: const Icon(Icons.history),
+          onPressed: () => _openHistory(ctx),
+        ),
+        if (_isOwner)
+          IconButton(
+            tooltip: 'Delete my account',
+            icon: const Icon(Icons.delete_forever),
+            onPressed: () => _openAccountDeletion(ctx),
+          ),
+        if (_canAccessStaffManagement)
+          IconButton(
+            tooltip: 'Staff accounts',
+            icon: const Icon(Icons.group),
+            onPressed: () => _openStaffManagement(ctx),
+          ),
+        IconButton(
+          tooltip: 'Log out',
+          icon: const Icon(Icons.logout),
+          onPressed: () => _logoutAll(),
+        ),
+      ]);
+    }
+
+    actions.add(
       IconButton(
-        tooltip: 'Log out staff',
-        icon: const Icon(Icons.logout),
-        onPressed: () => _logoutStaff(ctx),
+        tooltip: 'Privacy & Terms',
+        icon: const Icon(Icons.privacy_tip_outlined),
+        onPressed: () => _openLegal(ctx),
       ),
-      IconButton(
-        tooltip: 'Log out completely',
-        icon: const Icon(Icons.exit_to_app),
-        onPressed: () => _logoutAll(ctx),
-      ),
-    ];
+    );
+
+    return actions;
   }
 
   @override
@@ -937,7 +1133,24 @@ class _SmartBarAppState extends State<SmartBarApp> {
       child: MaterialApp(
         navigatorKey: _navigatorKey,
         title: 'Smart Bar Stock',
-        theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blueGrey),
+        theme: ThemeData(
+          useMaterial3: true,
+          colorSchemeSeed: _brandPrimary,
+          appBarTheme: const AppBarTheme(
+            backgroundColor: _brandPrimary,
+            foregroundColor: Colors.white,
+          ),
+          navigationBarTheme: const NavigationBarThemeData(
+            backgroundColor: _brandPrimaryDark,
+            indicatorColor: Colors.white24,
+            labelTextStyle: WidgetStatePropertyAll(
+              TextStyle(color: Colors.white),
+            ),
+            iconTheme: WidgetStatePropertyAll(
+              IconThemeData(color: Colors.white),
+            ),
+          ),
+        ),
         scrollBehavior: const _AppScrollBehavior(),
         builder: (context, child) {
           final content = Shortcuts(
@@ -969,10 +1182,27 @@ class _SmartBarAppState extends State<SmartBarApp> {
               ),
             ),
           );
+          final guarded = SessionObserver(
+            auth: _firebaseAuth,
+            notifier: _appNotifier,
+            onSignedOut: _logoutAll,
+            onInvalidState: _logoutAll,
+            child: content,
+          );
+          final activityGuard = Listener(
+            onPointerDown: (_) => _sessionManager.resetTimer(),
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                _sessionManager.resetTimer();
+                return false;
+              },
+              child: guarded,
+            ),
+          );
           return LoadingOverlay(
             isLoading: _loading || _syncingCloud,
             message: _loading ? 'Loading data...' : 'Syncing from cloud...',
-            child: content,
+            child: activityGuard,
           );
         },
         home: Builder(
@@ -995,8 +1225,19 @@ class _SmartBarAppState extends State<SmartBarApp> {
                       selectedIconTheme: const IconThemeData(size: 28),
                       unselectedIconTheme: const IconThemeData(size: 24),
                       items: [
-                        const BottomNavigationBarItem(
-                          icon: Icon(Icons.local_bar),
+                        BottomNavigationBarItem(
+                          icon: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              const Icon(Icons.local_bar),
+                              if (AppLogic.lowItems(_state).isNotEmpty)
+                                Positioned(
+                                  right: -4,
+                                  top: -4,
+                                  child: _lowBadge(AppLogic.lowItems(_state).length),
+                                ),
+                            ],
+                          ),
                           label: 'Bar',
                         ),
                         const BottomNavigationBarItem(
@@ -1020,14 +1261,7 @@ class _SmartBarAppState extends State<SmartBarApp> {
                                 Positioned(
                                   right: -1,
                                   top: -1,
-                                  child: Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: const BoxDecoration(
-                                      color: Colors.red,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
+                                  child: _lowBadge(null, color: Colors.red),
                                 ),
                             ],
                           ),

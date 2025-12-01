@@ -7,9 +7,17 @@ import '../../../core/models/order_item.dart';
 import '../../../core/print_service.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/print_preview_dialog.dart';
+import 'order_history_screen.dart';
 
-class OrderScreen extends StatelessWidget {
+class OrderScreen extends StatefulWidget {
   const OrderScreen({super.key});
+
+  @override
+  State<OrderScreen> createState() => _OrderScreenState();
+}
+
+class _OrderScreenState extends State<OrderScreen> {
+  String? _selectedOrderId;
 
   Color _statusColor(OrderStatus status) {
     switch (status) {
@@ -27,6 +35,28 @@ class OrderScreen extends StatelessWidget {
     final notifier = context.watch<AppNotifier>();
     final state = notifier.state;
     final orders = state.orders;
+    OrderItem? selected;
+    if (orders.isNotEmpty) {
+      selected = orders
+          .firstWhere((o) => o.product.id == _selectedOrderId, orElse: () => orders.first);
+    }
+    final historyButton = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          icon: const Icon(Icons.history),
+          label: const Text('Order history'),
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const OrderHistoryScreen(),
+              ),
+            );
+          },
+        ),
+      ),
+    );
     final exportButton = Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Align(
@@ -43,140 +73,163 @@ class OrderScreen extends StatelessWidget {
       ),
     );
 
-    if (orders.isEmpty) {
-      return Column(
-        children: [
-          exportButton,
-          Expanded(
-            child: EmptyState(
-              icon: Icons.shopping_cart_outlined,
-              title: 'No supplier orders',
-              message:
-                  'Track planned deliveries by creating orders from the Warehouse tab.',
-              buttonLabel: 'Show tip',
-              onButtonPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Open the Warehouse tab and add items to the order list.',
+    Widget emptyContent() => Column(
+          children: [
+            historyButton,
+            exportButton,
+            Expanded(
+              child: EmptyState(
+                icon: Icons.shopping_cart_outlined,
+                title: 'No supplier orders',
+                message:
+                    'Track planned deliveries by creating orders from the Warehouse tab.',
+                buttonLabel: 'Show tip',
+                onButtonPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Open the Warehouse tab and add items to the order list.',
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
-          ),
-        ],
-      );
-    }
+          ],
+        );
 
-    return Column(
-      children: [
-        exportButton,
-        Expanded(
-          child: Scrollbar(
-            thumbVisibility: true,
-            child: ListView.builder(
-              itemCount: orders.length,
-              itemBuilder: (context, index) {
-                final order = orders[index];
-                final isDelivered = order.status == OrderStatus.delivered;
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    if (orders.isEmpty) return emptyContent();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 1100;
+        final listView = Scrollbar(
+          thumbVisibility: true,
+          child: ListView.builder(
+            itemCount: orders.length,
+            itemBuilder: (context, index) {
+              final order = orders[index];
+              final isDelivered = order.status == OrderStatus.delivered;
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: InkWell(
+                  onTap: () => setState(() => _selectedOrderId = order.product.id),
                   child: Padding(
                     padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: _statusColor(order.status),
-                            child: const Icon(
-                              Icons.shopping_cart,
-                              color: Colors.white,
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: _statusColor(order.status),
+                              child: const Icon(
+                                Icons.shopping_cart,
+                                color: Colors.white,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              order.product.name,
-                              style: const TextStyle(
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                order.product.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            Chip(
+                              label: Text(_orderStatusLabel(order.status)),
+                              avatar: Icon(
+                                _orderStatusIcon(order.status),
+                                size: 16,
+                              ),
+                              backgroundColor:
+                                  _statusColor(order.status).withValues(alpha: 0.15),
+                              labelStyle: TextStyle(
+                                color: _statusColor(order.status),
                                 fontWeight: FontWeight.w600,
                               ),
-                            ),
-                          ),
-                          Chip(
-                            label: Text(_orderStatusLabel(order.status)),
-                            avatar: Icon(
-                              _orderStatusIcon(order.status),
-                              size: 16,
-                            ),
-                            backgroundColor:
-                                _statusColor(order.status)
-                                    .withValues(alpha: 0.15),
-                            labelStyle: TextStyle(
-                              color: _statusColor(order.status),
-                              fontWeight: FontWeight.w600,
-                            ),
-                            shape: StadiumBorder(
-                              side: BorderSide(
-                                color: _statusColor(order.status)
-                                    .withValues(alpha: 0.4),
+                              shape: StadiumBorder(
+                                side: BorderSide(
+                                  color: _statusColor(order.status)
+                                      .withValues(alpha: 0.4),
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _StatusFlow(order: order, colorBuilder: _statusColor),
-                      const SizedBox(height: 12),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            width: 90,
-                            child: TextFormField(
-                              key: ValueKey(
-                                'order_qty_${order.product.id}_${order.quantity}',
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _StatusFlow(order: order, colorBuilder: _statusColor),
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 90,
+                              child: TextFormField(
+                                key: ValueKey(
+                                  'order_qty_${order.product.id}_${order.quantity}',
+                                ),
+                                initialValue: order.quantity.toString(),
+                                keyboardType: TextInputType.number,
+                                textInputAction: TextInputAction.done,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                enabled: !isDelivered,
+                                decoration: const InputDecoration(
+                                  labelText: 'Qty',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
+                                ),
+                                onFieldSubmitted: (value) {
+                                  if (isDelivered) return;
+                                  final parsed =
+                                      int.tryParse(value.trim()) ?? order.quantity;
+                                  context
+                                      .read<AppNotifier>()
+                                      .changeOrderQty(order.product.id, parsed);
+                                },
                               ),
-                              initialValue: order.quantity.toString(),
-                              keyboardType: TextInputType.number,
-                              textInputAction: TextInputAction.done,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                              ],
-                              enabled: !isDelivered,
-                              decoration: const InputDecoration(
-                                labelText: 'Qty',
-                                isDense: true,
-                                border: OutlineInputBorder(),
-                              ),
-                              onFieldSubmitted: (value) {
-                                if (isDelivered) return;
-                                final parsed =
-                                    int.tryParse(value.trim()) ?? order.quantity;
-                                context
-                                    .read<AppNotifier>()
-                                    .changeOrderQty(order.product.id, parsed);
-                              },
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildNextAction(context, order),
-                          ),
-                        ],
-                      ),
-                    ],
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildNextAction(context, order),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                );
-              },
-            ),
+              );
+            },
           ),
-        ),
-      ],
+        );
+
+        final content = Column(
+          children: [
+            historyButton,
+            exportButton,
+            Expanded(child: listView),
+          ],
+        );
+
+        if (!isWide) return content;
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: content),
+            const SizedBox(width: 16),
+            SizedBox(
+              width: 340,
+              child: _buildOrderDetail(selected),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -239,6 +292,40 @@ class OrderScreen extends StatelessWidget {
       case OrderStatus.delivered:
         return const SizedBox.shrink();
     }
+  }
+
+  Widget _buildOrderDetail(OrderItem? order) {
+    if (order == null) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('Select an order to view details'),
+        ),
+      );
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              order.product.name,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text('Qty: ${order.quantity}'),
+            Text('Status: ${order.status.name}'),
+            if (order.performerName != null)
+              Text('By: ${order.performerName}'),
+            Text('Created: ${order.createdAt}'),
+          ],
+        ),
+      ),
+    );
   }
 
 }

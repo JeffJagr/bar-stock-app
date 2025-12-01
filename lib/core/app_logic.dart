@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'app_state.dart';
 import 'constants.dart';
+import 'constants/stock_thresholds.dart';
 import 'models/inventory_item.dart';
 import 'models/restock_item.dart';
 import 'models/order_item.dart';
@@ -20,8 +21,8 @@ class AppLogic {
   static StaffMember? get currentStaff => _currentStaff;
   /// Convert ratio (0.0 – 1.0) into Level
   static Level _levelFromRatio(double ratio) {
-    if (ratio >= AppConstants.barGreenThreshold) return Level.green; // almost full
-    if (ratio >= AppConstants.barYellowThreshold) return Level.yellow; // mid threshold
+    if (ratio >= StockThresholds.barOk) return Level.green; // almost full
+    if (ratio >= StockThresholds.barLow) return Level.yellow; // mid threshold
     return Level.red; // below warning threshold
   }
 
@@ -424,19 +425,18 @@ class AppLogic {
 
   /// Determine if a bar item should be marked as low.
   static bool isBarLow(InventoryItem item) {
-    if (!item.trackWarehouseLevel) return false;
-    if (item.maxQty <= 0) return true;
+    if (item.maxQty <= 0) return false;
     final ratio = (item.approxQty / item.maxQty).clamp(0.0, 1.0);
-    return ratio < AppConstants.barLowThreshold;
+    return ratio < StockThresholds.barLow;
   }
 
   /// Determine if storage level is below threshold.
   static bool isLowStock(InventoryItem item) {
     if (!AppConstants.warehouseTrackingEnabled) return false;
     if (!item.trackWarehouseLevel) return false;
-    if (item.maxQty <= 0) return true;
+    if (item.maxQty <= 0) return false;
     final ratio = (item.warehouseQty / item.maxQty).clamp(0.0, 1.0);
-    return ratio < AppConstants.warehouseLowThreshold;
+    return ratio < StockThresholds.warehouseLow;
   }
 
   /// Whether group contains at least one low-stock storage item.
@@ -721,6 +721,9 @@ class AppLogic {
           companyId: state.activeCompanyId,
           quantity: defaultQty,
           status: OrderStatus.pending,
+          createdAt: DateTime.now(),
+          performerId: _currentStaff?.id,
+          performerName: _currentStaff?.displayName,
         ),
       );
       _log(

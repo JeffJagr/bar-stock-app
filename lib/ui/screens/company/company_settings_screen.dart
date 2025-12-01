@@ -9,12 +9,16 @@ class CompanySettingsScreen extends StatelessWidget {
   final String companyId;
   final CompanyRepository repository;
   final bool canRegenerate;
+  final bool canDeleteAccount;
+  final VoidCallback? onDeleteAccount;
 
   const CompanySettingsScreen({
     super.key,
     required this.companyId,
     required this.repository,
     this.canRegenerate = false,
+    this.canDeleteAccount = false,
+    this.onDeleteAccount,
   });
 
   @override
@@ -205,6 +209,40 @@ class CompanySettingsScreen extends StatelessWidget {
                     },
                   ),
                 ),
+                if (canDeleteAccount) ...[
+                  const SizedBox(height: 16),
+                  Card(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Delete my account',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'This deletes your owner account and all company data. You will be signed out immediately.',
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  Theme.of(context).colorScheme.error,
+                              foregroundColor:
+                                  Theme.of(context).colorScheme.onError,
+                            ),
+                            onPressed: onDeleteAccount,
+                            icon: const Icon(Icons.delete_forever),
+                            label: const Text('Start account deletion'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           );
@@ -264,10 +302,10 @@ class CompanySettingsScreen extends StatelessWidget {
       ),
     );
     if (confirmed == true) {
-      final newCode = await repository.regenerateBusinessId(companyId);
+      await repository.regenerateBusinessId(companyId);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Business ID updated: $newCode')),
+          const SnackBar(content: Text('Business ID regenerated')),
         );
       }
     }

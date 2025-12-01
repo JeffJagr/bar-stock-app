@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class StaffLoginScreen extends StatefulWidget {
   const StaffLoginScreen({
@@ -40,9 +41,10 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
   Future<void> _submit() async {
     final businessId = _businessController.text.trim();
     final pin = _pinController.text.trim();
-    if (businessId.isEmpty || pin.length < 4) {
+    final isNumeric = RegExp(r'^[0-9]+$').hasMatch(pin);
+    if (businessId.isEmpty || pin.length < 4 || !isNumeric) {
       setState(() {
-        _error = 'Enter Business ID and a valid PIN';
+        _error = 'Enter Business ID and a numeric PIN (4+ digits)';
       });
       return;
     }
@@ -103,10 +105,13 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
                   controller: _pinController,
                   keyboardType: TextInputType.number,
                   obscureText: true,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
                   decoration: const InputDecoration(
                     labelText: 'PIN',
                     border: OutlineInputBorder(),
                     isDense: true,
+                    counterText: '',
                   ),
                   onSubmitted: (_) => _submit(),
                 ),

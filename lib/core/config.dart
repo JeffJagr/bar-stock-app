@@ -22,4 +22,14 @@ class AppConfig {
 
   /// Current runtime environment (dev/prod) to gate analytics, logging, etc.
   static const AppEnvironment environment = AppEnvironment.dev;
+
+  /// External legal documents for store compliance.
+  static const String privacyPolicyUrl = String.fromEnvironment(
+    'PRIVACY_POLICY_URL',
+    defaultValue: 'https://example.com/privacy',
+  );
+  static const String termsOfUseUrl = String.fromEnvironment(
+    'TERMS_OF_USE_URL',
+    defaultValue: 'https://example.com/terms',
+  );
 }

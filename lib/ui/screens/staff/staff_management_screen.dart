@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../data/staff_repository.dart';
 import '../../../models/company_member.dart';
@@ -54,8 +55,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     final name = _nameController.text.trim();
     final pin = _pinController.text.trim();
     final confirm = _confirmController.text.trim();
-    if (name.isEmpty || pin.length < 4) {
-      setState(() => _error = 'Name and a 4+ digit PIN are required');
+    final isNumeric = RegExp(r'^[0-9]+$').hasMatch(pin);
+    if (name.isEmpty || pin.length < 4 || !isNumeric) {
+      setState(() => _error = 'Name and a numeric 4+ digit PIN are required');
       return;
     }
     if (pin != confirm) {
@@ -78,9 +80,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       _confirmController.clear();
       await _refresh();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Created $_role $name')),
-        );
+        await _showPinDialog(context, pin: pin, title: 'Staff member created');
       }
     } catch (_) {
       setState(() => _error = 'Failed to create staff member');
@@ -106,6 +106,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               controller: pinController,
               keyboardType: TextInputType.number,
               obscureText: true,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
                 labelText: 'New PIN',
                 border: OutlineInputBorder(),
@@ -117,6 +118,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               controller: confirmController,
               keyboardType: TextInputType.number,
               obscureText: true,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
                 labelText: 'Confirm PIN',
                 border: OutlineInputBorder(),
@@ -163,8 +165,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     );
     await _refresh();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PIN updated')),
+      await _showPinDialog(
+        context,
+        pin: pinController.text.trim(),
+        title: 'PIN updated',
       );
     }
   }
@@ -195,17 +199,41 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.badge),
-                      const SizedBox(width: 8),
-                      const Text('Business ID:'),
-                      const SizedBox(width: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.badge),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Business ID',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            tooltip: 'Copy',
+                            icon: const Icon(Icons.copy),
+                            onPressed: () {
+                              Clipboard.setData(
+                                ClipboardData(text: widget.businessId!),
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Business ID copied'),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
                       SelectableText(
                         widget.businessId!,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           letterSpacing: 2,
+                          fontSize: 18,
                         ),
                       ),
                     ],
@@ -238,9 +266,15 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                     separatorBuilder: (context, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final member = members[index];
+                      final isActive = !member.disabled;
                       return ListTile(
                         title: Text(member.displayName),
-                        subtitle: Text(member.role.toUpperCase()),
+                        subtitle: Text(
+                          '${member.role.toUpperCase()} • ${isActive ? "ACTIVE" : "INACTIVE"}',
+                          style: TextStyle(
+                            color: isActive ? Colors.green : Colors.red,
+                          ),
+                        ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -250,7 +284,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                               onPressed: () => _resetPin(member),
                             ),
                             Switch(
-                              value: !member.disabled,
+                              value: isActive,
                               onChanged: (value) =>
                                   _toggleDisable(member, !value),
                               activeThumbColor:
@@ -318,10 +352,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               controller: _pinController,
               keyboardType: TextInputType.number,
               obscureText: true,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 6,
               decoration: const InputDecoration(
                 labelText: 'PIN (4+ digits)',
                 border: OutlineInputBorder(),
                 isDense: true,
+                counterText: '',
               ),
             ),
             const SizedBox(height: 8),
@@ -329,10 +366,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               controller: _confirmController,
               keyboardType: TextInputType.number,
               obscureText: true,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 6,
               decoration: const InputDecoration(
                 labelText: 'Confirm PIN',
                 border: OutlineInputBorder(),
                 isDense: true,
+                counterText: '',
               ),
             ),
             if (_error != null) ...[
@@ -356,6 +396,41 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _showPinDialog(
+    BuildContext context, {
+    required String pin,
+    required String title,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Share this PIN with the staff member:'),
+            const SizedBox(height: 8),
+            SelectableText(
+              pin,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 2,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
