@@ -27,14 +27,12 @@ class CompanyRepository {
       throw ArgumentError.value(name, 'name', 'Company name is required');
     }
     final doc = _service.companiesCollection.doc();
-    final joinCode = _generateJoinCode();
     final businessId = await _generateUniqueBusinessId();
     final payload = _service.withCompanyScope(doc.id, {
       'companyId': doc.id,
       'name': trimmed,
       'ownerUserId': ownerUserId,
       'businessId': businessId,
-      'joinCode': joinCode,
       'memberIds': [ownerUserId],
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -161,31 +159,13 @@ class CompanyRepository {
   }
 
   Future<Company?> fetchCompanyByCode(String joinCode) async {
-    final normalized = joinCode.trim().toUpperCase();
-    if (normalized.isEmpty) return null;
-    final snapshot = await _service.companiesCollection
-        .where('joinCode', isEqualTo: normalized)
-        .limit(1)
-        .get();
-    if (snapshot.docs.isEmpty) return null;
-    final doc = snapshot.docs.first;
-    return Company.fromJson({
-      ...doc.data(),
-      'companyId': doc.id,
-    });
+    // Legacy lookup removed; Business ID is the primary code.
+    return null;
   }
 
   Future<String> regenerateJoinCode(String companyId) async {
-    final newCode = _generateJoinCode();
-    await _service.companyDocument(companyId).set(
-      {
-        'companyId': companyId,
-        'joinCode': newCode,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    return newCode;
+    // Deprecated: join codes are not used anymore.
+    return 'DEPRECATED';
   }
 
   Future<void> joinCompany({
@@ -249,12 +229,8 @@ class CompanyRepository {
   }
 
   String _generateJoinCode() {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final code = List.generate(
-      6,
-      (_) => alphabet[_random.nextInt(alphabet.length)],
-    ).join();
-    return code;
+    // Deprecated placeholder.
+    return 'DEPRECATED';
   }
 
   Future<String> _generateUniqueBusinessId() async {

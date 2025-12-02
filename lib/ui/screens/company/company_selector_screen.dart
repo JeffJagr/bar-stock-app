@@ -108,7 +108,7 @@ class _CompanySelectorScreenState extends State<CompanySelectorScreen> {
               ),
               if (widget.role == CloudUserRole.owner)
                 Text(
-                  'Share the join code from each card with your staff.',
+                  'Share the Business ID with staff; join codes are no longer required.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               const SizedBox(height: 16),
@@ -132,22 +132,12 @@ class _CompanySelectorScreenState extends State<CompanySelectorScreen> {
                               final company = companies[index];
                               final isOwner = widget.role == CloudUserRole.owner;
                               final subtitle = isOwner
-                                  ? 'Join code: ${company.joinCode}'
+                                  ? 'Business ID: ${company.businessId}'
                                   : 'Owner: ${company.ownerUserId}';
                               return Card(
                                 child: ListTile(
                                   title: Text(company.name),
                                   subtitle: Text(subtitle),
-                                  trailing: isOwner
-                                      ? IconButton(
-                                          tooltip: 'Copy join code',
-                                          icon: const Icon(Icons.copy),
-                                          onPressed: () => _copyJoinCode(
-                                            context,
-                                            company.joinCode,
-                                          ),
-                                        )
-                                      : null,
                                   onTap: () => widget.onCompanySelected(
                                       company.companyId, company),
                                 ),

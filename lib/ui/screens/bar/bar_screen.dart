@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -32,11 +31,14 @@ class _BarScreenState extends State<BarScreen> {
   final Map<String, List<String>> _orderByGroup = {};
   final ScrollController _groupListController = ScrollController();
   final Map<String, double> _pendingPercents = {};
-  String? _selectedProductId;
+  final Map<String, bool> _groupExpanded = {};
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
 
   @override
   void dispose() {
     _groupListController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -45,16 +47,24 @@ class _BarScreenState extends State<BarScreen> {
     final notifier = context.watch<AppNotifier>();
     final state = notifier.state;
     final groupNames = AppLogic.groupNames(state);
-    InventoryItem? selectedItem;
-    if (state.inventory.isNotEmpty) {
-      selectedItem = state.inventory
-          .firstWhere((i) => i.product.id == _selectedProductId, orElse: () => state.inventory.first);
-    }
+
+    final normalizedQuery = _query.trim().toLowerCase();
+    final filteredGroups = groupNames.where((group) {
+      if (normalizedQuery.isEmpty) return true;
+      final matchesGroup = group.toLowerCase().contains(normalizedQuery);
+      final matchesItem = state.inventory.any(
+        (i) =>
+            i.groupName == group &&
+            i.product.name.toLowerCase().contains(normalizedQuery),
+      );
+      return matchesGroup || matchesItem;
+    }).toList();
+    // Note: detail pane removed; selectedItem no longer used.
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 1100;
-        final listView = groupNames.isEmpty
+        final isWide = false; // force single-column layout; detail pane removed
+        final listView = filteredGroups.isEmpty
             ? _buildBarEmptyState(context, notifier)
             : Scrollbar(
                 controller: _groupListController,
@@ -62,12 +72,20 @@ class _BarScreenState extends State<BarScreen> {
                 child: ListView.builder(
                   controller: _groupListController,
                   padding: const EdgeInsets.only(bottom: 16),
-                  itemCount: groupNames.length,
+                  itemCount: filteredGroups.length,
                   itemBuilder: (context, index) {
-                    final groupName = groupNames[index];
+                    final groupName = filteredGroups[index];
                     final rawItems = AppLogic.itemsForGroup(state, groupName)
                         .where((i) => i.maxQty > 0)
+                        .where((i) => normalizedQuery.isEmpty
+                            ? true
+                            : i.product.name
+                                .toLowerCase()
+                                .contains(normalizedQuery))
                         .toList();
+                    if (rawItems.isEmpty && normalizedQuery.isNotEmpty) {
+                      return const SizedBox.shrink();
+                    }
                     return _buildGroup(
                       context,
                       groupName,
@@ -85,46 +103,51 @@ class _BarScreenState extends State<BarScreen> {
           constraints.maxWidth,
         );
 
-        if (isWide) {
-          controls = Card(
-            margin: const EdgeInsets.all(12),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: controls,
-            ),
-          );
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 320,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: controls,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(child: listView),
-              const SizedBox(width: 16),
-              SizedBox(
-                width: 320,
-                child: _buildDetailPane(selectedItem),
-              ),
-            ],
-          );
-        }
-
         return Column(
           children: [
             Padding(
               padding:
                   const EdgeInsets.only(left: 12, right: 12, top: 8, bottom: 4),
-              child: controls,
+              child: Column(
+                children: [
+                  _buildSearchBar(),
+                  const SizedBox(height: 8),
+                  controls,
+                ],
+              ),
             ),
             const Divider(height: 1),
             Expanded(child: listView),
           ],
         );
+      },
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return TextField(
+      controller: _searchController,
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.search),
+        labelText: 'Search products',
+        isDense: true,
+        border: const OutlineInputBorder(),
+        suffixIcon: _query.isEmpty
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() {
+                    _query = '';
+                  });
+                },
+              ),
+      ),
+      onChanged: (value) {
+        setState(() {
+          _query = value;
+        });
       },
     );
   }
@@ -189,6 +212,7 @@ class _BarScreenState extends State<BarScreen> {
     List<InventoryItem> rawItems,
     AppNotifier notifier,
   ) {
+    final expanded = _groupExpanded[groupName] ?? true;
     final items = _sortedItemsForGroup(groupName, rawItems);
     final lowCount = AppLogic.barLowCountForGroup(
       notifier.state,
@@ -201,11 +225,30 @@ class _BarScreenState extends State<BarScreen> {
       children: [
         Row(
           children: [
-            Text(
-              groupName,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+            InkWell(
+              onTap: () {
+                setState(() {
+                  _groupExpanded[groupName] = !expanded;
+                });
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    expanded
+                        ? Icons.keyboard_arrow_down
+                        : Icons.keyboard_arrow_right,
+                    color: Colors.blueGrey,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    groupName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 8),
@@ -222,13 +265,6 @@ class _BarScreenState extends State<BarScreen> {
                         groupName,
                       );
                       break;
-                    case 'move':
-                      _showMoveGroupDialog(
-                        context,
-                        notifier,
-                        groupName,
-                      );
-                      break;
                     case 'delete':
                       _showDeleteGroupDialog(
                         context,
@@ -238,16 +274,12 @@ class _BarScreenState extends State<BarScreen> {
                       break;
                   }
                 },
-                itemBuilder: (ctx) => [
-                  const PopupMenuItem(
+                itemBuilder: (ctx) => const [
+                  PopupMenuItem(
                     value: 'edit',
-                    child: Text('Edit group'),
+                    child: Text('Rename group'),
                   ),
-                  const PopupMenuItem(
-                    value: 'move',
-                    child: Text('Reorder groups'),
-                  ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'delete',
                     child: Text('Delete group'),
                   ),
@@ -255,51 +287,52 @@ class _BarScreenState extends State<BarScreen> {
               ),
           ],
         ),
-        const SizedBox(height: 8),
-        ReorderableListView(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          onReorder: widget.canEdit
-              ? (oldIndex, newIndex) {
-                  setState(() {
-                    if (newIndex > oldIndex) newIndex -= 1;
-                    final currentOrder = (_orderByGroup[groupName] ??
-                        items.map((e) => e.product.id).toList());
-                    final ids = List<String>.from(currentOrder);
-                    final moved = ids.removeAt(oldIndex);
-                    ids.insert(newIndex, moved);
-                    _orderByGroup[groupName] = ids;
-                  });
-                }
-              : _handleReadOnlyReorder,
-          children: [
-            for (final item in items)
-              InkWell(
-                onTap: () => setState(() => _selectedProductId = item.product.id),
-                key: ValueKey(item.product.id),
-                child: _buildItemCard(
-                  context,
-                  item,
-                  notifier,
+        if (expanded) ...[
+          const SizedBox(height: 8),
+          ReorderableListView(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            onReorder: widget.canEdit
+                ? (oldIndex, newIndex) {
+                    setState(() {
+                      if (newIndex > oldIndex) newIndex -= 1;
+                      final currentOrder = (_orderByGroup[groupName] ??
+                          items.map((e) => e.product.id).toList());
+                      final ids = List<String>.from(currentOrder);
+                      final moved = ids.removeAt(oldIndex);
+                      ids.insert(newIndex, moved);
+                      _orderByGroup[groupName] = ids;
+                    });
+                  }
+                : _handleReadOnlyReorder,
+            children: [
+              for (final item in items)
+                InkWell(
+                  key: ValueKey(item.product.id),
+                  child: _buildItemCard(
+                    context,
+                    item,
+                    notifier,
+                  ),
                 ),
-              ),
-          ],
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: widget.canEdit
-                ? () => _showAddProductDialog(
-                      context,
-                      notifier,
-                      initialGroup: groupName,
-                    )
-                : widget.onRequireManager,
-            icon: const Icon(Icons.add),
-            label: const Text('Add product to this group'),
+            ],
           ),
-        ),
-        const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: widget.canEdit
+                  ? () => _showAddProductDialog(
+                        context,
+                        notifier,
+                        initialGroup: groupName,
+                      )
+                  : widget.onRequireManager,
+              icon: const Icon(Icons.add),
+              label: const Text('Add product to this group'),
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
       ],
     );
   }
@@ -346,7 +379,6 @@ class _BarScreenState extends State<BarScreen> {
     final pending = _pendingPercents[item.product.id];
     final sliderValue = (pending ?? committedPercent).clamp(0.0, 100.0);
     final approx = max > 0 ? (sliderValue / 100 * max) : item.approxQty;
-    final percent = sliderValue;
     final sliderColor = _sliderColor(sliderValue);
 
     final productOrders = state.orders
@@ -354,50 +386,140 @@ class _BarScreenState extends State<BarScreen> {
             o.product.id == item.product.id &&
             o.status != OrderStatus.delivered)
         .toList();
+    final onOrderQty = productOrders.fold<int>(
+      0,
+      (sum, o) => sum + o.quantity,
+    );
 
     return Card(
       key: key,
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Row 1: name + badges
             Row(
               children: [
                 CircleAvatar(
+                  radius: 16,
                   backgroundColor: sliderColor,
                   child: Icon(
                     item.product.isAlcohol ? Icons.local_bar : Icons.local_drink,
                     color: Colors.white,
+                    size: 18,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    item.product.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.product.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        item.groupName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      if (onOrderQty > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            'On order: $onOrderQty',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.blueGrey,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 if (isBarLow)
-                  const Icon(Icons.warning_amber, color: Colors.orange),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(Icons.warning_amber,
+                        color: Colors.orange.shade700, size: 18),
+                  ),
+                if (isStorageLow)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(Icons.warehouse,
+                        color: Colors.red.shade700, size: 18),
+                  ),
+                if (productOrders.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(Icons.shopping_cart,
+                        color: Colors.blue.shade700, size: 18),
+                  ),
               ],
             ),
-            const SizedBox(height: 4),
-            // Max qty editor
+            const SizedBox(height: 6),
+            // Row 2: slider + numeric + max editor
             Row(
               children: [
-                const Text(
-                  'Max in bar:',
-                  style: TextStyle(fontSize: 12),
+                Text(
+                  '${sliderValue.toStringAsFixed(0)}%',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: sliderColor,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: sliderColor,
+                      inactiveTrackColor: Colors.grey.shade200,
+                      thumbColor: sliderColor,
+                      trackHeight: 8,
+                    ),
+                    child: Slider(
+                      value: sliderValue,
+                      min: 0,
+                      max: 100,
+                      divisions: 20,
+                      label: max <= 0 ? null : '${sliderValue.toStringAsFixed(0)}%',
+                      onChanged: max <= 0
+                          ? null
+                          : (value) {
+                              setState(() {
+                                _pendingPercents[item.product.id] =
+                                    value.clamp(0, 100);
+                              });
+                            },
+                      onChangeEnd: max <= 0
+                          ? null
+                          : (value) => _confirmLevelChange(
+                                context,
+                                notifier,
+                                item,
+                                value,
+                                committedPercent,
+                              ),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 SizedBox(
-                  width: 70,
+                  width: 64,
                   child: TextFormField(
-                    initialValue: item.maxQty.toString(),
+                    initialValue: max.toString(),
                     keyboardType: TextInputType.number,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
@@ -423,145 +545,192 @@ class _BarScreenState extends State<BarScreen> {
                     },
                   ),
                 ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'Order',
+                  icon: const Icon(Icons.shopping_cart_outlined, size: 20),
+                  onPressed: () => _promptOrder(context, notifier, item),
+                ),
+                IconButton(
+                  tooltip: 'Restock',
+                  icon: const Icon(Icons.playlist_add_check, size: 20),
+                  onPressed: () => _addToRestock(context, notifier, item),
+                ),
               ],
             ),
-            const SizedBox(height: 8),
-            // Slider
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 4),
+            // Row 3: textual stats
+            Row(
               children: [
-                Row(
-                  children: [
-                    const Text(
-                      'Level',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () => _showNumericLevelDialog(
-                        context,
-                        notifier,
-                        item,
-                        committedPercent,
-                      ),
-                      child: Text(
-                        '${sliderValue.toStringAsFixed(0)}%',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.blueGrey.shade700,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                  ],
+                Text(
+                  'Bar: ~${approx.toStringAsFixed(1)} / $max',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isBarLow ? Colors.orange.shade700 : null,
+                  ),
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Text(
-                      '0%',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          activeTrackColor: sliderColor,
-                          inactiveTrackColor: Colors.grey.shade200,
-                          disabledActiveTrackColor: Colors.grey.shade300,
-                          disabledInactiveTrackColor: Colors.grey.shade200,
-                          thumbColor: sliderColor,
-                          overlayShape: const RoundSliderOverlayShape(
-                            overlayRadius: 18,
-                          ),
-                          trackHeight: 8,
-                        ),
-                        child: Slider(
-                          value: sliderValue,
-                          min: 0,
-                          max: 100,
-                          divisions: 20,
-                          label: max <= 0
-                              ? null
-                              : '${sliderValue.toStringAsFixed(0)}%',
-                          onChanged: max <= 0
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _pendingPercents[item.product.id] =
-                                        value.clamp(0, 100);
-                                  });
-                                },
-                          onChangeEnd: max <= 0
-                              ? null
-                              : (value) => _confirmLevelChange(
-                                    context,
-                                    notifier,
-                                    item,
-                                    value,
-                                    committedPercent,
-                                  ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '100%',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
+                const SizedBox(width: 8),
+                Text(
+                  'Warehouse: ${item.warehouseQty}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isStorageLow ? Colors.red.shade700 : null,
+                  ),
                 ),
               ],
             ),
-            Text(
-              'Bar: ~ ${approx.toStringAsFixed(1)} / $max '
-              '(${percent.toStringAsFixed(0)}%)',
-              style: TextStyle(
-                fontSize: 11,
-                color: isBarLow ? Colors.orange.shade700 : null,
-              ),
-            ),
-            Text(
-              'Warehouse: ${item.warehouseQty}',
-              style: TextStyle(
-                fontSize: 11,
-                color: isStorageLow ? Colors.red.shade700 : null,
-              ),
-            ),
-            if (productOrders.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Open orders: ${productOrders.length}',
-                style: const TextStyle(fontSize: 11),
-              ),
-            ],
           ],
         ),
       ),
     );
   }
 
-  Color _statusColor(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.pending:
-        return Colors.orange;
-      case OrderStatus.confirmed:
-        return Colors.blue;
-      case OrderStatus.delivered:
-        return Colors.green;
-    }
-  }
-
   Color _sliderColor(double percent) {
     if (percent >= 95) return Colors.green;
     if (percent >= 75) return Colors.orange;
     return Colors.red;
+  }
+
+  void _promptOrder(
+    BuildContext context,
+    AppNotifier notifier,
+    InventoryItem item,
+  ) {
+    final qtyController = TextEditingController(text: '1');
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Order ${item.product.name}'),
+        content: TextField(
+          controller: qtyController,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(
+            labelText: 'Quantity',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final qty = int.tryParse(qtyController.text.trim()) ?? 0;
+              if (qty <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter a positive quantity')),
+                );
+                return;
+              }
+              notifier.changeOrderQty(item.product.id, qty);
+              notifier.addToOrder(item.product.id);
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Added $qty x ${item.product.name} to orders'),
+                ),
+              );
+            },
+            child: const Text('Add to order'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addToRestock(
+    BuildContext context,
+    AppNotifier notifier,
+    InventoryItem item,
+  ) {
+    notifier.addToRestock(item.product.id);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${item.product.name} added to Restock')),
+    );
+  }
+
+  Future<String?> _pickGroup(
+    BuildContext context,
+    List<String> groups,
+    String current,
+  ) {
+    final searchCtrl = TextEditingController();
+    String? selected = current.isNotEmpty ? current : null;
+
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setStateDialog) {
+            final query = searchCtrl.text.trim().toLowerCase();
+            final filtered = groups
+                .where((g) => query.isEmpty || g.toLowerCase().contains(query))
+                .toList();
+            return AlertDialog(
+              title: const Text('Select group'),
+              content: SizedBox(
+                width: 360,
+                height: 360,
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: searchCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Search groups',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setStateDialog(() {}),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('No groups yet'))
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final name = filtered[index];
+                                final isSelected = selected == name;
+                                return ListTile(
+                                  title: Text(name),
+                                  trailing: isSelected
+                                      ? const Icon(Icons.check, color: Colors.blue)
+                                      : null,
+                                  onTap: () {
+                                    setStateDialog(() {
+                                      selected = name;
+                                    });
+                                  },
+                                  onLongPress: () {
+                                    Navigator.of(ctx).pop(name);
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: selected == null
+                      ? null
+                      : () => Navigator.of(ctx).pop(selected),
+                  child: const Text('Select'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   // Dialogs and helpers omitted (same as original)...
@@ -606,97 +775,6 @@ class _BarScreenState extends State<BarScreen> {
     });
   }
 
-  Future<void> _showNumericLevelDialog(
-    BuildContext context,
-    AppNotifier notifier,
-    InventoryItem item,
-    double currentPercent,
-  ) async {
-    final controller =
-        TextEditingController(text: currentPercent.toStringAsFixed(0));
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Set bar level for ${item.product.name}'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: const InputDecoration(
-            labelText: 'Percent (0-100)',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      final parsed = double.tryParse(controller.text.trim());
-      if (parsed == null || parsed < 0 || parsed > 100) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enter a value between 0 and 100')),
-        );
-        return;
-      }
-      _pendingPercents[item.product.id] = parsed;
-      await _confirmLevelChange(
-        context,
-        notifier,
-        item,
-        parsed,
-        currentPercent,
-      );
-    }
-  }
-
-  Widget _buildDetailPane(InventoryItem? item) {
-    if (item == null) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Select a product to view details'),
-        ),
-      );
-    }
-    final max = item.maxQty;
-    final percent =
-        max > 0 ? ((item.approxQty / max) * 100).clamp(0.0, 100.0) : 0.0;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              item.product.name,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Bar: ${item.approxQty.toStringAsFixed(1)} / $max (${percent.toStringAsFixed(0)}%)',
-            ),
-            Text('Warehouse: ${item.warehouseQty}'),
-            const SizedBox(height: 8),
-            Text('Status: ${item.level.name.toUpperCase()}'),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildBarEmptyState(BuildContext context, AppNotifier notifier) {
     return EmptyState(
       icon: Icons.local_bar,
@@ -709,27 +787,264 @@ class _BarScreenState extends State<BarScreen> {
     );
   }
 
-  void _showAddGroupDialog(BuildContext context, AppNotifier notifier) {}
+  void _showAddGroupDialog(BuildContext context, AppNotifier notifier) {
+    final controller = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add group'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Group name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              notifier.addGroup(name);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
   void _showAddProductDialog(
     BuildContext context,
     AppNotifier notifier, {
     required String initialGroup,
-  }) {}
+  }) {
+    final groups = AppLogic.groupNames(notifier.state);
+    final nameCtrl = TextEditingController();
+    final groupCtrl = TextEditingController(text: initialGroup);
+    final maxCtrl = TextEditingController(text: '10');
+    final whCtrl = TextEditingController(text: '0');
+    bool isAlcohol = true;
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) {
+          return AlertDialog(
+            title: const Text('Add product'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Product name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: groupCtrl,
+                    readOnly: true,
+                    decoration: InputDecoration(
+                      labelText: 'Group',
+                      hintText: groups.isEmpty
+                          ? 'No groups yet - add one'
+                          : 'Select group',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.arrow_drop_down),
+                        onPressed: () async {
+                          final selected = await _pickGroup(
+                            context,
+                            groups,
+                            groupCtrl.text,
+                          );
+                          if (!mounted) return;
+                          if (selected != null) {
+                            groupCtrl.text = selected;
+                            setStateDialog(() {});
+                          }
+                        },
+                      ),
+                    ),
+                    onTap: () async {
+                      final selected = await _pickGroup(
+                        context,
+                        groups,
+                        groupCtrl.text,
+                      );
+                      if (!mounted) return;
+                      if (selected != null) {
+                        groupCtrl.text = selected;
+                        setStateDialog(() {});
+                      }
+                    },
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        _showAddGroupDialog(context, notifier);
+                        // Refresh groups after dialog closes
+                        setStateDialog(() {
+                          final refreshed = AppLogic.groupNames(notifier.state);
+                          if (refreshed.isNotEmpty && groupCtrl.text.isEmpty) {
+                            groupCtrl.text = refreshed.first;
+                          }
+                        });
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text('Create new group'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: maxCtrl,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          decoration: const InputDecoration(
+                            labelText: 'Max in bar',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: whCtrl,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          decoration: const InputDecoration(
+                            labelText: 'Warehouse qty',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    title: const Text('Alcohol'),
+                    value: isAlcohol,
+                    onChanged: (val) {
+                      setStateDialog(() => isAlcohol = val);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  final name = nameCtrl.text.trim();
+                  final group = groupCtrl.text.trim().isEmpty
+                      ? initialGroup
+                      : groupCtrl.text.trim();
+                  final max = int.tryParse(maxCtrl.text.trim()) ?? 0;
+                  final wh = int.tryParse(whCtrl.text.trim()) ?? 0;
+                  if (name.isEmpty || group.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Name and group are required')),
+                    );
+                    return;
+                  }
+                  notifier.addProduct(
+                    groupName: group,
+                    name: name,
+                    isAlcohol: isAlcohol,
+                    maxQty: max,
+                    warehouseQty: wh,
+                  );
+                  Navigator.of(ctx).pop();
+                },
+                child: const Text('Add'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
   void _showRenameGroupDialog(
     BuildContext context,
     AppNotifier notifier,
     String groupName,
-  ) {}
-  void _showMoveGroupDialog(
-    BuildContext context,
-    AppNotifier notifier,
-    String groupName,
-  ) {}
+  ) {
+    final controller = TextEditingController(text: groupName);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename group'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'New name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final newName = controller.text.trim();
+              if (newName.isEmpty) return;
+              notifier.renameGroup(groupName, newName);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
   void _showDeleteGroupDialog(
     BuildContext context,
     AppNotifier notifier,
     String groupName,
-  ) {}
+  ) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete group'),
+        content: Text(
+          'Delete "$groupName" and its products? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              notifier.deleteGroup(groupName);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _LowBadge extends StatelessWidget {

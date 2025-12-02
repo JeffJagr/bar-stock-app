@@ -7,7 +7,6 @@ class Company {
   final String ownerUserId;
   final DateTime createdAt;
   final DateTime updatedAt;
-  final String joinCode;
   final String businessId;
 
   const Company({
@@ -16,7 +15,6 @@ class Company {
     required this.ownerUserId,
     required this.createdAt,
     required this.updatedAt,
-    required this.joinCode,
     required this.businessId,
   });
 
@@ -26,7 +24,6 @@ class Company {
     String? ownerUserId,
     DateTime? createdAt,
     DateTime? updatedAt,
-    String? joinCode,
     String? businessId,
   }) {
     return Company(
@@ -35,7 +32,6 @@ class Company {
       ownerUserId: ownerUserId ?? this.ownerUserId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      joinCode: joinCode ?? this.joinCode,
       businessId: businessId ?? this.businessId,
     );
   }
@@ -65,7 +61,6 @@ class Company {
       ownerUserId: json['ownerUserId'] as String? ?? '',
       createdAt: createdAt,
       updatedAt: updatedAt,
-      joinCode: json['joinCode'] as String? ?? '',
       businessId: (json['businessId'] as String? ??
               json['companyCode'] as String? ??
               '')
@@ -80,7 +75,6 @@ class Company {
       'ownerUserId': ownerUserId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
-      'joinCode': joinCode,
       'businessId': businessId,
     };
   }

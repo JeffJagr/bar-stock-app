@@ -379,7 +379,10 @@ class _SmartBarAppState extends State<SmartBarApp> {
 
   bool get _hasManagementAccess {
     final role = (_activeStaff?.role ?? '').toLowerCase();
-    return role == 'owner' || role == 'manager';
+    if (role == 'owner' || role == 'manager') return true;
+    // In offline/demo mode (no Firebase), allow management to keep local editing.
+    if (!_firebaseAvailable) return true;
+    return false;
   }
 
   bool get _isOwner => (_activeStaff?.role ?? '').toLowerCase() == 'owner';
@@ -475,6 +478,10 @@ class _SmartBarAppState extends State<SmartBarApp> {
   }
 
   Future<void> _logoutAll() async {
+    final hadSession = _firebaseUser != null ||
+        _activeStaff != null ||
+        _appNotifier.currentUserId != null ||
+        _appNotifier.state.activeCompanyId != null;
     setState(() {
       _loading = true;
     });
@@ -502,7 +509,7 @@ class _SmartBarAppState extends State<SmartBarApp> {
         );
       }
     }
-    if (mounted) {
+    if (mounted && hadSession) {
       setState(() {
         _loading = false;
       });
@@ -512,6 +519,10 @@ class _SmartBarAppState extends State<SmartBarApp> {
       messenger?.showSnackBar(
         const SnackBar(content: Text('Logged out')),
       );
+    } else if (mounted) {
+      setState(() {
+        _loading = false;
+      });
     }
   }
 

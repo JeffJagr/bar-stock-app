@@ -28,13 +28,18 @@ class SessionObserver extends StatefulWidget {
 
 class _SessionObserverState extends State<SessionObserver> {
   StreamSubscription<User?>? _authSub;
+  bool _hadAuthSession = false;
 
   @override
   void initState() {
     super.initState();
     _authSub = widget.auth?.authStateChanges().listen((user) {
       if (user == null) {
+        if (_hadAuthSession) {
         widget.onSignedOut();
+      }
+      } else {
+        _hadAuthSession = true;
       }
     });
     widget.notifier.addListener(_onNotifierChanged);
@@ -49,11 +54,15 @@ class _SessionObserverState extends State<SessionObserver> {
 
   void _onNotifierChanged() {
     final state = widget.notifier.state;
-    // If staff/user context exists but company is missing, treat as invalid.
-    if (state.activeCompanyId == null &&
-        (widget.notifier.currentStaffMember != null ||
-            widget.notifier.currentUserId != null)) {
-      widget.onInvalidState();
+    final hasCompany = state.activeCompanyId != null;
+    final hasStaffContext = widget.notifier.currentStaffMember != null ||
+        state.activeStaffId != null;
+
+    // Only treat as invalid if staff context exists without a company.
+    // Owners are allowed to be signed in before choosing a company.
+    if (!hasCompany && hasStaffContext) {
+      widget.notifier.setCurrentStaffMember(null);
+      widget.notifier.setActiveStaffId(null);
     }
   }
 

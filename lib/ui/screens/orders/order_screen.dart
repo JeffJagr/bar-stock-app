@@ -17,8 +17,6 @@ class OrderScreen extends StatefulWidget {
 }
 
 class _OrderScreenState extends State<OrderScreen> {
-  String? _selectedOrderId;
-
   Color _statusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
@@ -34,12 +32,8 @@ class _OrderScreenState extends State<OrderScreen> {
   Widget build(BuildContext context) {
     final notifier = context.watch<AppNotifier>();
     final state = notifier.state;
-    final orders = state.orders;
-    OrderItem? selected;
-    if (orders.isNotEmpty) {
-      selected = orders
-          .firstWhere((o) => o.product.id == _selectedOrderId, orElse: () => orders.first);
-    }
+    final orders =
+        state.orders.where((o) => o.status != OrderStatus.delivered).toList();
     final historyButton = Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Align(
@@ -102,7 +96,7 @@ class _OrderScreenState extends State<OrderScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 1100;
+        final isWide = false; // detail pane removed
         final listView = Scrollbar(
           thumbVisibility: true,
           child: ListView.builder(
@@ -112,95 +106,92 @@ class _OrderScreenState extends State<OrderScreen> {
               final isDelivered = order.status == OrderStatus.delivered;
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: InkWell(
-                  onTap: () => setState(() => _selectedOrderId = order.product.id),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: _statusColor(order.status),
-                              child: const Icon(
-                                Icons.shopping_cart,
-                                color: Colors.white,
-                              ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: _statusColor(order.status),
+                            child: const Icon(
+                              Icons.shopping_cart,
+                              color: Colors.white,
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                order.product.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            Chip(
-                              label: Text(_orderStatusLabel(order.status)),
-                              avatar: Icon(
-                                _orderStatusIcon(order.status),
-                                size: 16,
-                              ),
-                              backgroundColor:
-                                  _statusColor(order.status).withValues(alpha: 0.15),
-                              labelStyle: TextStyle(
-                                color: _statusColor(order.status),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              order.product.name,
+                              style: const TextStyle(
                                 fontWeight: FontWeight.w600,
                               ),
-                              shape: StadiumBorder(
-                                side: BorderSide(
-                                  color: _statusColor(order.status)
-                                      .withValues(alpha: 0.4),
-                                ),
+                            ),
+                          ),
+                          Chip(
+                            label: Text(_orderStatusLabel(order.status)),
+                            avatar: Icon(
+                              _orderStatusIcon(order.status),
+                              size: 16,
+                            ),
+                            backgroundColor:
+                                _statusColor(order.status).withValues(alpha: 0.15),
+                            labelStyle: TextStyle(
+                              color: _statusColor(order.status),
+                              fontWeight: FontWeight.w600,
+                            ),
+                            shape: StadiumBorder(
+                              side: BorderSide(
+                                color: _statusColor(order.status)
+                                    .withValues(alpha: 0.4),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _StatusFlow(order: order, colorBuilder: _statusColor),
-                        const SizedBox(height: 12),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 90,
-                              child: TextFormField(
-                                key: ValueKey(
-                                  'order_qty_${order.product.id}_${order.quantity}',
-                                ),
-                                initialValue: order.quantity.toString(),
-                                keyboardType: TextInputType.number,
-                                textInputAction: TextInputAction.done,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                ],
-                                enabled: !isDelivered,
-                                decoration: const InputDecoration(
-                                  labelText: 'Qty',
-                                  isDense: true,
-                                  border: OutlineInputBorder(),
-                                ),
-                                onFieldSubmitted: (value) {
-                                  if (isDelivered) return;
-                                  final parsed =
-                                      int.tryParse(value.trim()) ?? order.quantity;
-                                  context
-                                      .read<AppNotifier>()
-                                      .changeOrderQty(order.product.id, parsed);
-                                },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _StatusFlow(order: order, colorBuilder: _statusColor),
+                      const SizedBox(height: 12),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 90,
+                            child: TextFormField(
+                              key: ValueKey(
+                                'order_qty_${order.product.id}_${order.quantity}',
                               ),
+                              initialValue: order.quantity.toString(),
+                              keyboardType: TextInputType.number,
+                              textInputAction: TextInputAction.done,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
+                              enabled: !isDelivered,
+                              decoration: const InputDecoration(
+                                labelText: 'Qty',
+                                isDense: true,
+                                border: OutlineInputBorder(),
+                              ),
+                              onFieldSubmitted: (value) {
+                                if (isDelivered) return;
+                                final parsed =
+                                    int.tryParse(value.trim()) ?? order.quantity;
+                                context
+                                    .read<AppNotifier>()
+                                    .changeOrderQty(order.product.id, parsed);
+                              },
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildNextAction(context, order),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildNextAction(context, order),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               );
@@ -216,19 +207,7 @@ class _OrderScreenState extends State<OrderScreen> {
           ],
         );
 
-        if (!isWide) return content;
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: content),
-            const SizedBox(width: 16),
-            SizedBox(
-              width: 340,
-              child: _buildOrderDetail(selected),
-            ),
-          ],
-        );
+        return content;
       },
     );
   }
@@ -293,41 +272,6 @@ class _OrderScreenState extends State<OrderScreen> {
         return const SizedBox.shrink();
     }
   }
-
-  Widget _buildOrderDetail(OrderItem? order) {
-    if (order == null) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Select an order to view details'),
-        ),
-      );
-    }
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              order.product.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text('Qty: ${order.quantity}'),
-            Text('Status: ${order.status.name}'),
-            if (order.performerName != null)
-              Text('By: ${order.performerName}'),
-            Text('Created: ${order.createdAt}'),
-          ],
-        ),
-      ),
-    );
-  }
-
 }
 
 class _StatusFlow extends StatelessWidget {

@@ -250,42 +250,65 @@ class _ItemCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
+            Row(
               children: [
                 if (AppLogic.isBarLow(item))
-                  Chip(
-                    label: const Text('Bar low'),
-                    backgroundColor: Colors.orange.shade50,
-                    labelStyle: TextStyle(color: Colors.orange.shade700),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 0,
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Chip(
+                      label: const Text('Bar low'),
+                      backgroundColor: Colors.orange.shade50,
+                      labelStyle: TextStyle(color: Colors.orange.shade700),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 0,
+                      ),
                     ),
                   ),
                 if (AppLogic.isLowStock(item))
-                  Chip(
-                    label: const Text('Warehouse low'),
-                    backgroundColor: Colors.red.shade50,
-                    labelStyle: TextStyle(color: Colors.red.shade700),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 0,
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Chip(
+                      label: const Text('WH low'),
+                      backgroundColor: Colors.red.shade50,
+                      labelStyle: TextStyle(color: Colors.red.shade700),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 0,
+                      ),
                     ),
                   ),
                 if (restock.isNotEmpty)
-                  Chip(
-                    avatar: const Icon(Icons.playlist_add_check, size: 16),
-                    label: Text(
-                      'Restock: ${restock.first.approxNeed.toStringAsFixed(1)}',
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Chip(
+                      avatar: const Icon(Icons.playlist_add_check, size: 16),
+                      label: Text(
+                        'Restock: ${restock.first.approxNeed.toStringAsFixed(1)}',
+                      ),
                     ),
                   ),
                 if (orders.isNotEmpty)
-                  Chip(
-                    avatar: const Icon(Icons.shopping_cart, size: 16),
-                    label: Text('Orders: ${_ordersSummary(orders)}'),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Chip(
+                      avatar: const Icon(Icons.shopping_cart, size: 16),
+                      label: Text('Orders: ${_ordersSummary(orders)}'),
+                    ),
                   ),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Order',
+                  icon: const Icon(Icons.shopping_cart_outlined, size: 20),
+                  onPressed: () =>
+                      context.read<AppNotifier>().addToOrder(item.product.id),
+                ),
+                IconButton(
+                  tooltip: 'Restock',
+                  icon: const Icon(Icons.playlist_add_check, size: 20),
+                  onPressed: () =>
+                      context.read<AppNotifier>().addToRestock(item.product.id),
+                ),
               ],
             ),
           ],

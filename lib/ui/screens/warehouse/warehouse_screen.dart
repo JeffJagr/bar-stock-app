@@ -476,15 +476,8 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
     AppNotifier notifier,
   ) {
     final existingGroups = AppLogic.groupNames(notifier.state);
-    const newGroupKey = '__new__';
-
-    String? selectedGroup =
-        existingGroups.isNotEmpty ? existingGroups.first : null;
-    bool useNewGroup = existingGroups.isEmpty;
-    final newGroupController = TextEditingController(
-      text: useNewGroup ? '' : '',
-    );
-
+    String selectedGroup =
+        existingGroups.isNotEmpty ? existingGroups.first : '';
     final nameController = TextEditingController();
     final maxController = TextEditingController(text: '0');
     final warehouseController = TextEditingController(text: '0');
@@ -501,46 +494,60 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: useNewGroup ? newGroupKey : selectedGroup,
-                    items: [
-                      ...existingGroups.map(
-                        (g) => DropdownMenuItem(
-                          value: g,
-                          child: Text(g),
-                        ),
-                      ),
-                      const DropdownMenuItem(
-                        value: newGroupKey,
-                        child: Text('+ New group...'),
-                      ),
-                    ],
-                    decoration: const InputDecoration(
+                  TextField(
+                    controller: TextEditingController(text: selectedGroup),
+                    readOnly: true,
+                    decoration: InputDecoration(
                       labelText: 'Group',
-                      border: OutlineInputBorder(),
+                      hintText: existingGroups.isEmpty
+                          ? 'No groups yet - add one'
+                          : 'Select group',
+                      border: const OutlineInputBorder(),
                       isDense: true,
-                    ),
-                    onChanged: (value) {
-                      setStateDialog(() {
-                        if (value == newGroupKey) {
-                          useNewGroup = true;
-                        } else {
-                          useNewGroup = false;
-                          selectedGroup = value;
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.arrow_drop_down),
+                      onPressed: () async {
+                        final picked = await _pickGroup(
+                          context,
+                          existingGroups,
+                          selectedGroup,
+                        );
+                        if (!mounted) return;
+                        if (picked != null) {
+                          setStateDialog(() => selectedGroup = picked);
                         }
-                      });
+                      },
+                    ),
+                  ),
+                    onTap: () async {
+                      final picked = await _pickGroup(
+                        context,
+                        existingGroups,
+                        selectedGroup,
+                      );
+                      if (!mounted) return;
+                      if (picked != null) {
+                        setStateDialog(() => selectedGroup = picked);
+                      }
                     },
                   ),
-                  const SizedBox(height: 8),
-                  if (useNewGroup)
-                    TextField(
-                      controller: newGroupController,
-                      decoration: const InputDecoration(
-                        labelText: 'New group name',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        _showAddGroupDialog(context, notifier);
+                        setStateDialog(() {
+                          final refreshed =
+                              AppLogic.groupNames(notifier.state);
+                          if (refreshed.isNotEmpty) {
+                            selectedGroup = refreshed.first;
+                          }
+                        });
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text('Create new group'),
                     ),
+                  ),
                   const SizedBox(height: 8),
                   TextField(
                     controller: nameController,
@@ -619,9 +626,7 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
               ),
               TextButton(
                 onPressed: () {
-                  final groupName = useNewGroup
-                      ? newGroupController.text.trim()
-                      : (selectedGroup ?? '');
+                  final groupName = selectedGroup.trim();
                   final prodName = nameController.text.trim();
                   final maxRaw = int.tryParse(maxController.text.trim());
                   final whRaw = int.tryParse(warehouseController.text.trim());
@@ -640,15 +645,21 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
                     maxQty = 0;
                   }
 
-                  if (groupName.isNotEmpty && prodName.isNotEmpty) {
-                    notifier.addProduct(
-                      groupName: groupName,
-                      name: prodName,
-                      isAlcohol: isAlcohol,
-                      maxQty: maxQty,
-                      warehouseQty: whQty,
+                  if (groupName.isEmpty || prodName.isEmpty) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text('Group and product name are required'),
+                      ),
                     );
+                    return;
                   }
+                  notifier.addProduct(
+                    groupName: groupName,
+                    name: prodName,
+                    isAlcohol: isAlcohol,
+                    maxQty: maxQty,
+                    warehouseQty: whQty,
+                  );
                   Navigator.pop(ctx);
                 },
                 child: const Text('Add'),
@@ -710,6 +721,113 @@ class _WarehouseScreenState extends State<WarehouseScreen> {
     final next = (item.warehouseQty + delta).clamp(0, 1000000).toInt();
     notifier.changeWarehouseQty(item.product.id, next);
     _warehouseControllerFor(item).text = next.toString();
+  }
+
+  Future<String?> _pickGroup(
+    BuildContext context,
+    List<String> groups,
+    String current,
+  ) {
+    final searchCtrl = TextEditingController();
+    String? selected = current.isNotEmpty ? current : null;
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) {
+          final query = searchCtrl.text.trim().toLowerCase();
+          final filtered = groups
+              .where((g) => query.isEmpty || g.toLowerCase().contains(query))
+              .toList();
+          return AlertDialog(
+            title: const Text('Select group'),
+            content: SizedBox(
+              width: 360,
+              height: 360,
+              child: Column(
+                children: [
+                  TextField(
+                    controller: searchCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Search groups',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setStateDialog(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(child: Text('No groups yet'))
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final name = filtered[index];
+                              final isSelected = selected == name;
+                              return ListTile(
+                                title: Text(name),
+                                trailing: isSelected
+                                    ? const Icon(Icons.check, color: Colors.blue)
+                                    : null,
+                                onTap: () {
+                                  setStateDialog(() => selected = name);
+                                },
+                                onLongPress: () {
+                                  Navigator.of(ctx).pop(name);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed:
+                    selected == null ? null : () => Navigator.of(ctx).pop(selected),
+                child: const Text('Select'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showAddGroupDialog(BuildContext context, AppNotifier notifier) {
+    final controller = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add group'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Group name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              notifier.addGroup(name);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

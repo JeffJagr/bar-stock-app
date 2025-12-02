@@ -46,64 +46,6 @@ class CompanySettingsScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Company join code',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        if (company == null)
-                          const Text('Loading...')
-                        else
-                          Row(
-                            children: [
-                              SelectableText(
-                                company.joinCode,
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 3,
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: 'Copy code',
-                                icon: const Icon(Icons.copy),
-                                onPressed: () {
-                                  Clipboard.setData(
-                                      ClipboardData(text: company.joinCode));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Join code copied'),
-                                    ),
-                                  );
-                                },
-                              ),
-                              const Spacer(),
-                              IconButton(
-                                tooltip: canRegenerate
-                                    ? 'Regenerate code'
-                                    : 'Only owners can regenerate',
-                                onPressed: canRegenerate
-                                    ? () => _confirmRegenerate(context)
-                                    : null,
-                                icon: const Icon(Icons.refresh),
-                              ),
-                            ],
-                          ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Share this code with staff who need to join the company.',
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
                           'Business ID (for staff login)',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
@@ -249,36 +191,6 @@ class CompanySettingsScreen extends StatelessWidget {
         },
       ),
     );
-  }
-
-  Future<void> _confirmRegenerate(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Regenerate join code'),
-        content: const Text(
-          'Regenerating the code will invalidate the old code. Continue?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Regenerate'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      final newCode = await repository.regenerateJoinCode(companyId);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Join code updated: $newCode')),
-        );
-      }
-    }
   }
 
   Future<void> _confirmRegenerateBusinessId(BuildContext context) async {

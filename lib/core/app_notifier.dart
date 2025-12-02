@@ -312,11 +312,12 @@ class AppNotifier extends ChangeNotifier {
   void addToOrder(String productId) {
     _controller.addToOrder(productId);
     _syncOrder(productId);
+    final item = _inventoryByProduct(productId);
     _recordHistory(
-      'Added $productId to order',
+      'Added ${item?.product.name ?? productId} to order',
       HistoryKind.order,
       HistoryActionType.create,
-      meta: {'productId': productId},
+      meta: {'productId': productId, 'productName': item?.product.name},
     );
     notifyListeners();
   }
